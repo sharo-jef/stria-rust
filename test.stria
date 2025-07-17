@@ -1,9 +1,0 @@
-use print
-
-val x = 42
-val y = 3.14
-val message = "Hello, World!"
-val result = x + 10
-
-print(message)
-print(result)

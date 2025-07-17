@@ -1,7 +1,0 @@
-use print
-
-val x = 42
-val y = 30
-
-print(x)
-print(y)
