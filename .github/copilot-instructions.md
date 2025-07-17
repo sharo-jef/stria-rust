@@ -33,7 +33,7 @@
 
 [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/)
 
-Use `<type>[optional scope]: <description>` format for commit messages if there is no order specified. (SINGLE LINE)
+**Use `<type>[optional scope]: <description>` format for commit messages every single time.**
 
 ```
 <type>[optional scope]: <description>
