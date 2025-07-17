@@ -32,22 +32,25 @@ impl OutputGenerator {
             OutputFormat::Toml => Self::generate_toml(data),
         }
     }
-    
+
     fn generate_json(data: &JsonValue) -> StriaResult<String> {
-        serde_json::to_string_pretty(data)
-            .map_err(|e| crate::error::StriaError::RuntimeError(format!("JSON serialization failed: {}", e)))
+        serde_json::to_string_pretty(data).map_err(|e| {
+            crate::error::StriaError::RuntimeError(format!("JSON serialization failed: {}", e))
+        })
     }
-    
+
     fn generate_yaml(data: &JsonValue) -> StriaResult<String> {
-        serde_yaml::to_string(data)
-            .map_err(|e| crate::error::StriaError::RuntimeError(format!("YAML serialization failed: {}", e)))
+        serde_yaml::to_string(data).map_err(|e| {
+            crate::error::StriaError::RuntimeError(format!("YAML serialization failed: {}", e))
+        })
     }
-    
+
     fn generate_toml(data: &JsonValue) -> StriaResult<String> {
         // Convert JsonValue to toml::Value
         let toml_value = json_to_toml(data)?;
-        toml::to_string(&toml_value)
-            .map_err(|e| crate::error::StriaError::RuntimeError(format!("TOML serialization failed: {}", e)))
+        toml::to_string(&toml_value).map_err(|e| {
+            crate::error::StriaError::RuntimeError(format!("TOML serialization failed: {}", e))
+        })
     }
 }
 

@@ -27,7 +27,7 @@ impl Diagnostic {
             severity: Severity::Error,
         }
     }
-    
+
     pub fn warning(message: impl Into<String>, line: usize, column: usize, length: usize) -> Self {
         Self {
             message: message.into(),
@@ -37,24 +37,24 @@ impl Diagnostic {
             severity: Severity::Warning,
         }
     }
-    
+
     /// Format diagnostic in Rust-style error format
     pub fn format_error(&self, source: &str, filename: &str) -> String {
         let lines: Vec<&str> = source.lines().collect();
         let line_content = lines.get(self.line.saturating_sub(1)).unwrap_or(&"");
-        
+
         let error_code = match self.severity {
             Severity::Error => "E001",
             Severity::Warning => "W001",
             Severity::Info => "I001",
         };
-        
+
         let severity_name = match self.severity {
             Severity::Error => "error",
             Severity::Warning => "warning",
             Severity::Info => "info",
         };
-        
+
         format!(
             "{severity_name}[{error_code}]: {message}\n  --> {filename}:{line}:{column}\n   |\n{line:4} | {line_content}\n   | {padding}{carets}\n",
             severity_name = severity_name,

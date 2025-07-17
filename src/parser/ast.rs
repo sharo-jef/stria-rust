@@ -399,7 +399,12 @@ pub enum Type {
     Boolean,
     Null,
     Array(Box<Type>),
+    List(Box<Type>),
+    I32Range,
+    F64Range,
     Struct(String),
     Function,
     Void,
+    Optional(Box<Type>),
+    Union(Vec<Type>),
 }

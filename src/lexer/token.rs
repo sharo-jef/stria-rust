@@ -21,32 +21,32 @@ pub enum TokenKind {
     StringLiteral,
     BooleanLiteral,
     NullLiteral,
-    
+
     // Identifiers and Keywords
     Identifier,
     Keyword(Keyword),
-    
+
     // Operators
     Plus,
     Minus,
     Star,
     Slash,
     Percent,
-    Power,      // **
-    
+    Power, // **
+
     // Comparison
-    Equal,      // ==
-    NotEqual,   // !=
-    Less,       // <
-    Greater,    // >
-    LessEqual,  // <=
+    Equal,        // ==
+    NotEqual,     // !=
+    Less,         // <
+    Greater,      // >
+    LessEqual,    // <=
     GreaterEqual, // >=
-    
+
     // Logical
-    And,        // &&
-    Or,         // ||
-    Not,        // !
-    
+    And, // &&
+    Or,  // ||
+    Not, // !
+
     // Bitwise
     BitAnd,     // &
     BitOr,      // |
@@ -54,63 +54,63 @@ pub enum TokenKind {
     BitNot,     // ~
     LeftShift,  // <<
     RightShift, // >>
-    
+
     // Assignment
-    Assign,     // =
-    PlusAssign, // +=
-    MinusAssign, // -=
-    StarAssign, // *=
-    SlashAssign, // /=
+    Assign,        // =
+    PlusAssign,    // +=
+    MinusAssign,   // -=
+    StarAssign,    // *=
+    SlashAssign,   // /=
     PercentAssign, // %=
-    
+
     // Punctuation
-    LeftParen,  // (
-    RightParen, // )
-    LeftBrace,  // {
-    RightBrace, // }
-    LeftBracket, // [
-    RightBracket, // ]
-    Comma,      // ,
-    Dot,        // .
-    Colon,      // :
-    Semicolon,  // ;
-    Question,   // ?
-    Arrow,      // ->
-    Range,      // ..
+    LeftParen,      // (
+    RightParen,     // )
+    LeftBrace,      // {
+    RightBrace,     // }
+    LeftBracket,    // [
+    RightBracket,   // ]
+    Comma,          // ,
+    Dot,            // .
+    Colon,          // :
+    Semicolon,      // ;
+    Question,       // ?
+    Arrow,          // ->
+    Range,          // ..
     RangeInclusive, // ..=
-    
+
     // Special
     Comment,
     Whitespace,
     Newline,
     Eof,
-    
+
     // Schema directive
     SchemaDirective, // #schema
-    
+
     // Spread operator
-    Spread,     // ...
-    
+    Spread, // ...
+
     // Null assertion
     NullAssert, // !
-    
+
     // Type cast
-    As,         // as
-    
+    As, // as
+
     // Type check
-    Is,         // is
-    
+    Is, // is
+
     // Step operator (for ranges)
-    Step,       // step
-    
+    Step, // step
+
     // Until operator
-    Until,      // until
-    
+    Until, // until
+
     // Down to operator
-    DownTo,     // downTo
-    
+    DownTo, // downTo
+
     // In operator
-    In,         // in
+    In, // in
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -138,45 +138,45 @@ pub enum Keyword {
     Else,
     Match,
     When,
-    
+
     // Declarations
     Struct,
     Fun,
     Val,
     Var,
     Init,
-    
+
     // Types
     String,
     Bool,
-    
+
     // Literals
     True,
     False,
     Null,
-    
+
     // Modifiers
     Private,
     Get,
     Repeated,
     Mixin,
-    
+
     // Imports
     Use,
-    
+
     // Schema
     Schema,
-    
+
     // Error handling
     Error,
-    
+
     // Special
     This,
     Return,
-    
+
     // Infix
     Infix,
-    
+
     // Annotation keywords
     Description,
     Name,
@@ -189,36 +189,69 @@ impl Token {
     pub fn new(kind: TokenKind, span: Span, value: String) -> Self {
         Self { kind, span, value }
     }
-    
+
     pub fn is_keyword(&self) -> bool {
         matches!(self.kind, TokenKind::Keyword(_))
     }
-    
+
     pub fn is_operator(&self) -> bool {
-        matches!(self.kind, 
-            TokenKind::Plus | TokenKind::Minus | TokenKind::Star | TokenKind::Slash |
-            TokenKind::Percent | TokenKind::Power | TokenKind::Equal | TokenKind::NotEqual |
-            TokenKind::Less | TokenKind::Greater | TokenKind::LessEqual | TokenKind::GreaterEqual |
-            TokenKind::And | TokenKind::Or | TokenKind::Not | TokenKind::BitAnd | TokenKind::BitOr |
-            TokenKind::BitXor | TokenKind::BitNot | TokenKind::LeftShift | TokenKind::RightShift
+        matches!(
+            self.kind,
+            TokenKind::Plus
+                | TokenKind::Minus
+                | TokenKind::Star
+                | TokenKind::Slash
+                | TokenKind::Percent
+                | TokenKind::Power
+                | TokenKind::Equal
+                | TokenKind::NotEqual
+                | TokenKind::Less
+                | TokenKind::Greater
+                | TokenKind::LessEqual
+                | TokenKind::GreaterEqual
+                | TokenKind::And
+                | TokenKind::Or
+                | TokenKind::Not
+                | TokenKind::BitAnd
+                | TokenKind::BitOr
+                | TokenKind::BitXor
+                | TokenKind::BitNot
+                | TokenKind::LeftShift
+                | TokenKind::RightShift
         )
     }
-    
+
     pub fn is_punctuation(&self) -> bool {
-        matches!(self.kind,
-            TokenKind::LeftParen | TokenKind::RightParen | TokenKind::LeftBrace | TokenKind::RightBrace |
-            TokenKind::LeftBracket | TokenKind::RightBracket | TokenKind::Comma | TokenKind::Dot |
-            TokenKind::Colon | TokenKind::Semicolon | TokenKind::Question | TokenKind::Arrow |
-            TokenKind::Range | TokenKind::RangeInclusive
+        matches!(
+            self.kind,
+            TokenKind::LeftParen
+                | TokenKind::RightParen
+                | TokenKind::LeftBrace
+                | TokenKind::RightBrace
+                | TokenKind::LeftBracket
+                | TokenKind::RightBracket
+                | TokenKind::Comma
+                | TokenKind::Dot
+                | TokenKind::Colon
+                | TokenKind::Semicolon
+                | TokenKind::Question
+                | TokenKind::Arrow
+                | TokenKind::Range
+                | TokenKind::RangeInclusive
         )
     }
 }
 
 impl Span {
     pub fn new(start: usize, end: usize, line: usize, column: usize) -> Self {
-        Self { start, end, line, column }
+        Self {
+            start,
+            end,
+            line,
+            column,
+        }
     }
-    
+
     pub fn dummy() -> Self {
         Self::new(0, 0, 1, 1)
     }
@@ -277,12 +310,12 @@ impl Keyword {
             "this" => Some(Keyword::This),
             "return" => Some(Keyword::Return),
             "infix" => Some(Keyword::Infix),
-            "as" => Some(Keyword::Name), // 'as' is handled separately
-            "is" => Some(Keyword::Name), // 'is' is handled separately
-            "step" => Some(Keyword::Name), // 'step' is handled separately
+            "as" => Some(Keyword::Name),    // 'as' is handled separately
+            "is" => Some(Keyword::Name),    // 'is' is handled separately
+            "step" => Some(Keyword::Name),  // 'step' is handled separately
             "until" => Some(Keyword::Name), // 'until' is handled separately
             "downTo" => Some(Keyword::Name), // 'downTo' is handled separately
-            "in" => Some(Keyword::Name), // 'in' is handled separately
+            "in" => Some(Keyword::Name),    // 'in' is handled separately
             _ => None,
         }
     }
