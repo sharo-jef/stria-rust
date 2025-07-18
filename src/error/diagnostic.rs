@@ -121,7 +121,7 @@ impl Diagnostic {
             line_prefix_spaces = line_prefix_spaces,
             line_number = self.line,  // Left-aligned line number
             line_content = line_content,
-            padding = " ".repeat(self.column),
+            padding = " ".repeat(self.column.saturating_sub(1)),
             caret_color = "\x1b[31m",  // Red for carets
             carets = "^".repeat(self.length.max(1))
         );
