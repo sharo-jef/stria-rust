@@ -296,7 +296,30 @@ impl SemanticAnalyzer {
                 }
             }
             Expression::Call(call) => {
-                // For now, we'll only handle simple function calls where callee is an identifier
+                // Check if this is a struct instantiation first
+                if let Expression::Identifier(name, _) = call.callee.as_ref() {
+                    // Check if this is a struct instantiation
+                    if self.structs.contains_key(name) {
+                        // This is a struct instantiation, not a function call
+                        return Ok(Type::Struct(name.clone()));
+                    }
+                    
+                    // Check if it's a property-based instantiation
+                    if let Some(schema_decl) = &self.schema_declaration {
+                        if let Some(schema_item) = schema_decl
+                            .items
+                            .iter()
+                            .find(|item| item.property_name == *name)
+                        {
+                            let struct_name = &schema_item.type_name;
+                            if let Some(_struct_decl) = self.structs.get(struct_name) {
+                                return Ok(Type::Struct(struct_name.clone()));
+                            }
+                        }
+                    }
+                }
+                
+                // Handle as function call
                 if let Expression::Identifier(func_name, _) = call.callee.as_ref() {
                     // Check if it's a user-defined function
                     if let Some(func_decl) = self.functions.get(func_name) {

@@ -872,7 +872,7 @@ impl Parser {
                 let name = token.value.clone();
                 let span = token.span.clone();
 
-                // Check if this is a struct instantiation with optional parentheses
+                // Parse call expressions according to specification
                 if self.check(&TokenKind::LeftParen) {
                     let left_paren_span = self.advance().span.clone(); // consume '(' and remember its position
 
@@ -926,170 +926,34 @@ impl Parser {
                         };
 
                         return Err(StriaError::parser_with_span(
-                            "Expected ')' after expression".to_string(),
+                            "Expected ')' after arguments".to_string(),
                             error_span,
                         ));
                     }
 
-                    // After (), check for { (struct instantiation) or nothing (function call)
-                    if self.check(&TokenKind::LeftBrace) {
-                        self.advance(); // consume '{'
-                        let mut field_assignments = Vec::new();
-
-                        while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-                            // Parse field name
-                            if let TokenKind::Identifier = self.peek().kind {
-                                let field_name = self.advance().value.clone();
-
-                                // Expect '='
-                                if !self.match_token(&TokenKind::Assign) {
-                                    let current_token = self.peek().clone();
-                                    return Err(StriaError::parser_with_span_and_help(
-                                        format!(
-                                            "Expected '=' after field name '{}', found '{}'",
-                                            field_name, current_token.value
-                                        ),
-                                        current_token.span,
-                                        "struct fields must be assigned with '=' operator",
-                                    ));
-                                }
-
-                                // Parse field value
-                                let field_value = self.parse_expression()?;
-
-                                // Create an assignment expression for this field
-                                field_assignments
-                                    .push(Expression::Identifier(field_name, span.clone()));
-                                field_assignments.push(field_value);
-
-                                // Handle comma, semicolon, or end - allow newlines as field separators
-                                if self.check(&TokenKind::Comma)
-                                    || self.check(&TokenKind::Semicolon)
-                                {
-                                    self.advance(); // consume ',' or ';'
-                                } else if self.check(&TokenKind::RightBrace) {
-                                    // End of struct, will be handled by outer loop
-                                } else {
-                                    // Allow implicit field separation (newlines act as separators)
-                                }
-                            } else {
-                                let current_token = self.peek().clone();
-                                return Err(StriaError::parser_with_span_and_help(
-                                    format!("Expected field name, found '{}'", current_token.value),
-                                    current_token.span,
-                                    "field names must be valid identifiers",
-                                ));
-                            }
-                        }
-
-                        if !self.match_token(&TokenKind::RightBrace) {
-                            let current_token = self.peek().clone();
-                            return Err(StriaError::parser_with_span(
-                                format!(
-                                    "Expected '}}' after struct fields, found '{}'",
-                                    current_token.value
-                                ),
-                                current_token.span,
-                            ));
-                        }
-
-                        // Combine constructor arguments with field assignments
-                        let mut all_arguments = arguments;
-                        all_arguments.extend(field_assignments);
-
-                        Ok(Expression::StructInstantiation(StructInstantiation {
-                            name,
-                            arguments: all_arguments,
-                            initializer: None,
-                            span,
-                        }))
-                    } else {
-                        // This is either a struct instantiation without {} or a function call
-                        if arguments.is_empty() {
-                            // Empty parentheses - could be struct instantiation or function call
-                            // For now, treat as function call since no {} follows
-                            Ok(Expression::Call(Call {
-                                callee: Box::new(Expression::Identifier(name, span.clone())),
-                                arguments: Vec::new(),
-                                span,
-                            }))
-                        } else {
-                            // Has arguments - this is a struct instantiation with parameters
-                            Ok(Expression::StructInstantiation(StructInstantiation {
-                                name,
-                                arguments,
-                                initializer: None,
-                                span,
-                            }))
-                        }
-                    }
+                    // All identifier(args) patterns are CallExpression according to specification
+                    let mut call_span = span.clone();
+                    call_span.end = self.previous().span.end;
+                    
+                    Ok(Expression::Call(Call {
+                        callee: Box::new(Expression::Identifier(name, span)),
+                        arguments,
+                        span: call_span,
+                    }))
                 } else if self.check(&TokenKind::LeftBrace) {
-                    // Direct struct instantiation without parentheses
-                    self.advance(); // consume '{'
-                    let mut field_assignments = Vec::new();
-
-                    while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
-                        // Parse field name
-                        if let TokenKind::Identifier = self.peek().kind {
-                            let field_name = self.advance().value.clone();
-
-                            // Expect '='
-                            if !self.match_token(&TokenKind::Assign) {
-                                let current_token = self.peek().clone();
-                                return Err(StriaError::parser_with_span_and_help(
-                                    format!(
-                                        "Expected '=' after field name '{}', found '{}'",
-                                        field_name, current_token.value
-                                    ),
-                                    current_token.span,
-                                    "struct fields must be assigned with '=' operator",
-                                ));
-                            }
-
-                            // Parse field value
-                            let field_value = self.parse_expression()?;
-
-                            // Create an assignment expression for this field
-                            field_assignments
-                                .push(Expression::Identifier(field_name, span.clone()));
-                            field_assignments.push(field_value);
-
-                            // Handle comma, semicolon, or end - allow newlines as field separators
-                            if self.check(&TokenKind::Comma) || self.check(&TokenKind::Semicolon) {
-                                self.advance(); // consume ',' or ';'
-                            } else if self.check(&TokenKind::RightBrace) {
-                                // End of struct, will be handled by outer loop
-                            } else {
-                                // Allow implicit field separation (newlines act as separators)
-                            }
-                        } else {
-                            let current_token = self.peek().clone();
-                            return Err(StriaError::parser_with_span_and_help(
-                                format!("Expected field name, found '{}'", current_token.value),
-                                current_token.span,
-                                "field names must be valid identifiers",
-                            ));
-                        }
-                    }
-
-                    if !self.match_token(&TokenKind::RightBrace) {
-                        let current_token = self.peek().clone();
-                        return Err(StriaError::parser_with_span(
-                            format!(
-                                "Expected '}}' after struct fields, found '{}'",
-                                current_token.value
-                            ),
-                            current_token.span,
-                        ));
-                    }
-
+                    // Direct struct instantiation without parentheses: Point { ... }
+                    let block = self.parse_block()?;
+                    let mut struct_span = span.clone();
+                    struct_span.end = self.previous().span.end;
+                    
                     Ok(Expression::StructInstantiation(StructInstantiation {
                         name,
-                        arguments: field_assignments,
-                        initializer: None,
-                        span,
+                        arguments: Vec::new(),
+                        initializer: Some(block),
+                        span: struct_span,
                     }))
                 } else {
+                    // Simple identifier
                     Ok(Expression::Identifier(name, span))
                 }
             }

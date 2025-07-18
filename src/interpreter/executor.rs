@@ -107,6 +107,29 @@ impl Executor {
                 // For struct instantiations, use the struct name as key
                 if let Expression::StructInstantiation(struct_inst) = expr {
                     Ok(Some((struct_inst.name.clone(), value)))
+                } else if let Expression::Call(call) = expr {
+                    // For call expressions that are actually struct instantiations
+                    if let Expression::Identifier(name, _) = call.callee.as_ref() {
+                        // Check if this is a struct instantiation
+                        if self.structs.contains_key(name) {
+                            Ok(Some((name.clone(), value)))
+                        } else if let Some(schema_decl) = &self.schema_declaration {
+                            // Check if it's a property-based instantiation
+                            if let Some(_) = schema_decl
+                                .items
+                                .iter()
+                                .find(|item| item.property_name == *name)
+                            {
+                                Ok(Some((name.clone(), value)))
+                            } else {
+                                Ok(Some(("result".to_string(), value)))
+                            }
+                        } else {
+                            Ok(Some(("result".to_string(), value)))
+                        }
+                    } else {
+                        Ok(Some(("result".to_string(), value)))
+                    }
                 } else {
                     // For other expressions, use a default key
                     Ok(Some(("result".to_string(), value)))
@@ -660,7 +683,41 @@ impl Executor {
     fn call_function(&mut self, call: &Call) -> StriaResult<Value> {
         // For now, handle simple function calls by name
         if let Expression::Identifier(func_name, _) = &*call.callee {
-            // Check if it's a builtin function first
+            // Check if it's a struct instantiation first
+            if let Some(struct_decl) = self.structs.get(func_name) {
+                // Create a StructInstantiation from the Call
+                let struct_instantiation = StructInstantiation {
+                    name: func_name.clone(),
+                    arguments: call.arguments.clone(),
+                    initializer: None,
+                    span: call.span.clone(),
+                };
+                let struct_decl = struct_decl.clone();
+                return self.instantiate_struct(&struct_instantiation, &struct_decl);
+            }
+            
+            // Check if it's a property-based instantiation
+            if let Some(schema_decl) = &self.schema_declaration {
+                if let Some(schema_item) = schema_decl
+                    .items
+                    .iter()
+                    .find(|item| item.property_name == *func_name)
+                {
+                    let struct_name = &schema_item.type_name;
+                    if let Some(struct_decl) = self.structs.get(struct_name) {
+                        let struct_instantiation = StructInstantiation {
+                            name: struct_name.clone(),
+                            arguments: call.arguments.clone(),
+                            initializer: None,
+                            span: call.span.clone(),
+                        };
+                        let struct_decl = struct_decl.clone();
+                        return self.instantiate_struct(&struct_instantiation, &struct_decl);
+                    }
+                }
+            }
+
+            // Check if it's a builtin function
             if self.builtins.contains_key(func_name) {
                 let mut args = Vec::new();
                 for arg_expr in &call.arguments {
