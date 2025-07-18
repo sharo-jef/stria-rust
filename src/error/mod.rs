@@ -29,6 +29,9 @@ pub enum StriaError {
     #[error("Validation error: {0}")]
     #[allow(dead_code)]
     ValidationError(String),
+
+    #[error("{0}")]
+    Diagnostic(diagnostic::Diagnostic),
 }
 
 impl StriaError {
@@ -49,6 +52,23 @@ impl StriaError {
     }
 
     #[allow(dead_code)]
+    pub fn diagnostic(diagnostic: diagnostic::Diagnostic) -> Self {
+        StriaError::Diagnostic(diagnostic)
+    }
+
+    pub fn parser_with_span(msg: impl Into<String>, span: crate::lexer::token::Span) -> Self {
+        StriaError::Diagnostic(diagnostic::Diagnostic::error_with_span(msg, span))
+    }
+
+    pub fn parser_with_span_and_help(
+        msg: impl Into<String>,
+        span: crate::lexer::token::Span,
+        help: impl Into<String>,
+    ) -> Self {
+        StriaError::Diagnostic(diagnostic::Diagnostic::error_with_span(msg, span).with_help(help))
+    }
+
+    #[allow(dead_code)]
     pub fn type_error(msg: impl Into<String>) -> Self {
         StriaError::TypeError(msg.into())
     }
@@ -56,5 +76,16 @@ impl StriaError {
     #[allow(dead_code)]
     pub fn validation(msg: impl Into<String>) -> Self {
         StriaError::ValidationError(msg.into())
+    }
+
+    pub fn format_rich(&self, source: &str, filename: &str) -> String {
+        match self {
+            StriaError::Diagnostic(diagnostic) => {
+                let mut d = diagnostic.clone();
+                d.filename = Some(filename.to_string());
+                d.format_error(source)
+            }
+            _ => format!("{}", self),
+        }
     }
 }

@@ -380,10 +380,26 @@ impl Parser {
 
         let is_this = self.match_token(&TokenKind::Keyword(Keyword::This));
 
-        let name = if let TokenKind::Identifier = self.peek().kind {
-            self.advance().value.clone()
+        let name = if is_this {
+            // If we have 'this', expect '.' followed by identifier
+            if !self.match_token(&TokenKind::Dot) {
+                return Err(StriaError::parser("Expected '.' after 'this'".to_string()));
+            }
+
+            if let TokenKind::Identifier = self.peek().kind {
+                self.advance().value.clone()
+            } else {
+                return Err(StriaError::parser(
+                    "Expected property name after 'this.'".to_string(),
+                ));
+            }
         } else {
-            return Err(StriaError::parser("Expected parameter name".to_string()));
+            // Regular parameter name
+            if let TokenKind::Identifier = self.peek().kind {
+                self.advance().value.clone()
+            } else {
+                return Err(StriaError::parser("Expected parameter name".to_string()));
+            }
         };
 
         let type_annotation = if self.match_token(&TokenKind::Colon) {
@@ -565,7 +581,7 @@ impl Parser {
     }
 
     fn parse_comparison(&mut self) -> StriaResult<Expression> {
-        let mut expr = self.parse_term()?;
+        let mut expr = self.parse_cast()?;
 
         while self.match_tokens(&[
             TokenKind::Greater,
@@ -581,13 +597,30 @@ impl Parser {
                 _ => unreachable!(),
             };
 
-            let right = self.parse_term()?;
+            let right = self.parse_cast()?;
             let span = crate::lexer::Span::new(0, 0, 1, 1); // TODO: proper span
 
             expr = Expression::BinaryOp(BinaryOp {
                 left: Box::new(expr),
                 operator,
                 right: Box::new(right),
+                span,
+            });
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_cast(&mut self) -> StriaResult<Expression> {
+        let mut expr = self.parse_term()?;
+
+        while self.match_token(&TokenKind::As) {
+            let target_type = self.parse_type_annotation()?;
+            let span = crate::lexer::Span::new(0, 0, 1, 1); // TODO: proper span
+
+            expr = Expression::TypeCast(TypeCast {
+                expression: Box::new(expr),
+                target_type,
                 span,
             });
         }
@@ -788,52 +821,180 @@ impl Parser {
                 let token = self.advance();
                 let name = token.value.clone();
                 let span = token.span.clone();
-                
-                // Check if this is a struct instantiation
-                if self.check(&TokenKind::LeftBrace) {
+
+                // Check if this is a struct instantiation with optional parentheses
+                if self.check(&TokenKind::LeftParen) {
+                    self.advance(); // consume '('
+
+                    let mut arguments = Vec::new();
+
+                    // Parse arguments inside parentheses
+                    while !self.check(&TokenKind::RightParen) && !self.is_at_end() {
+                        arguments.push(self.parse_expression()?);
+                        if !self.match_token(&TokenKind::Comma) {
+                            break;
+                        }
+                    }
+
+                    if !self.match_token(&TokenKind::RightParen) {
+                        return Err(StriaError::parser_with_span(
+                            "Expected ')' after struct arguments".to_string(),
+                            self.peek().span.clone(),
+                        ));
+                    }
+
+                    // After (), check for { (struct instantiation) or nothing (function call)
+                    if self.check(&TokenKind::LeftBrace) {
+                        self.advance(); // consume '{'
+                        let mut field_assignments = Vec::new();
+
+                        while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+                            // Parse field name
+                            if let TokenKind::Identifier = self.peek().kind {
+                                let field_name = self.advance().value.clone();
+
+                                // Expect '='
+                                if !self.match_token(&TokenKind::Assign) {
+                                    let current_token = self.peek().clone();
+                                    return Err(StriaError::parser_with_span_and_help(
+                                        format!(
+                                            "Expected '=' after field name '{}', found '{}'",
+                                            field_name, current_token.value
+                                        ),
+                                        current_token.span,
+                                        "struct fields must be assigned with '=' operator",
+                                    ));
+                                }
+
+                                // Parse field value
+                                let field_value = self.parse_expression()?;
+
+                                // Create an assignment expression for this field
+                                field_assignments
+                                    .push(Expression::Identifier(field_name, span.clone()));
+                                field_assignments.push(field_value);
+
+                                // Handle comma, semicolon, or end - allow newlines as field separators
+                                if self.check(&TokenKind::Comma)
+                                    || self.check(&TokenKind::Semicolon)
+                                {
+                                    self.advance(); // consume ',' or ';'
+                                } else if self.check(&TokenKind::RightBrace) {
+                                    // End of struct, will be handled by outer loop
+                                } else {
+                                    // Allow implicit field separation (newlines act as separators)
+                                }
+                            } else {
+                                let current_token = self.peek().clone();
+                                return Err(StriaError::parser_with_span_and_help(
+                                    format!("Expected field name, found '{}'", current_token.value),
+                                    current_token.span,
+                                    "field names must be valid identifiers",
+                                ));
+                            }
+                        }
+
+                        if !self.match_token(&TokenKind::RightBrace) {
+                            let current_token = self.peek().clone();
+                            return Err(StriaError::parser_with_span(
+                                format!(
+                                    "Expected '}}' after struct fields, found '{}'",
+                                    current_token.value
+                                ),
+                                current_token.span,
+                            ));
+                        }
+
+                        // Combine constructor arguments with field assignments
+                        let mut all_arguments = arguments;
+                        all_arguments.extend(field_assignments);
+
+                        Ok(Expression::StructInstantiation(StructInstantiation {
+                            name,
+                            arguments: all_arguments,
+                            initializer: None,
+                            span,
+                        }))
+                    } else {
+                        // This is either a struct instantiation without {} or a function call
+                        if arguments.is_empty() {
+                            // Empty parentheses - could be struct instantiation or function call
+                            // For now, treat as function call since no {} follows
+                            Ok(Expression::Call(Call {
+                                callee: Box::new(Expression::Identifier(name, span.clone())),
+                                arguments: Vec::new(),
+                                span,
+                            }))
+                        } else {
+                            // Has arguments - this is a struct instantiation with parameters
+                            Ok(Expression::StructInstantiation(StructInstantiation {
+                                name,
+                                arguments,
+                                initializer: None,
+                                span,
+                            }))
+                        }
+                    }
+                } else if self.check(&TokenKind::LeftBrace) {
+                    // Direct struct instantiation without parentheses
                     self.advance(); // consume '{'
                     let mut field_assignments = Vec::new();
-                    
+
                     while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
                         // Parse field name
                         if let TokenKind::Identifier = self.peek().kind {
                             let field_name = self.advance().value.clone();
-                            
-                            // Expect '=' 
+
+                            // Expect '='
                             if !self.match_token(&TokenKind::Assign) {
-                                return Err(StriaError::parser(
-                                    format!("Expected '=' after field name '{}' in struct instantiation, found {:?}", field_name, self.peek())
+                                let current_token = self.peek().clone();
+                                return Err(StriaError::parser_with_span_and_help(
+                                    format!(
+                                        "Expected '=' after field name '{}', found '{}'",
+                                        field_name, current_token.value
+                                    ),
+                                    current_token.span,
+                                    "struct fields must be assigned with '=' operator",
                                 ));
                             }
-                            
+
                             // Parse field value
                             let field_value = self.parse_expression()?;
-                            
+
                             // Create an assignment expression for this field
-                            field_assignments.push(Expression::Identifier(field_name, span.clone()));
+                            field_assignments
+                                .push(Expression::Identifier(field_name, span.clone()));
                             field_assignments.push(field_value);
-                            
-                            // Handle comma or end - allow newlines as field separators
-                            if self.check(&TokenKind::Comma) {
-                                self.advance(); // consume ','
+
+                            // Handle comma, semicolon, or end - allow newlines as field separators
+                            if self.check(&TokenKind::Comma) || self.check(&TokenKind::Semicolon) {
+                                self.advance(); // consume ',' or ';'
                             } else if self.check(&TokenKind::RightBrace) {
                                 // End of struct, will be handled by outer loop
                             } else {
                                 // Allow implicit field separation (newlines act as separators)
                             }
                         } else {
-                            return Err(StriaError::parser(
-                                "Expected field name in struct instantiation".to_string(),
+                            let current_token = self.peek().clone();
+                            return Err(StriaError::parser_with_span_and_help(
+                                format!("Expected field name, found '{}'", current_token.value),
+                                current_token.span,
+                                "field names must be valid identifiers",
                             ));
                         }
                     }
-                    
+
                     if !self.match_token(&TokenKind::RightBrace) {
-                        return Err(StriaError::parser(
-                            "Expected '}' after struct instantiation".to_string(),
+                        let current_token = self.peek().clone();
+                        return Err(StriaError::parser_with_span(
+                            format!(
+                                "Expected '}}' after struct fields, found '{}'",
+                                current_token.value
+                            ),
+                            current_token.span,
                         ));
                     }
-                    
+
                     Ok(Expression::StructInstantiation(StructInstantiation {
                         name,
                         arguments: field_assignments,
@@ -935,7 +1096,9 @@ impl Parser {
         let mut path = path_token.value.clone();
 
         // Remove quotes from the path if present
-        if (path.starts_with('"') && path.ends_with('"')) || (path.starts_with('\'') && path.ends_with('\'')) {
+        if (path.starts_with('"') && path.ends_with('"'))
+            || (path.starts_with('\'') && path.ends_with('\''))
+        {
             path = path[1..path.len() - 1].to_string();
         }
 

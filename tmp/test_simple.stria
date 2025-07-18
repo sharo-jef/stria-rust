@@ -1,0 +1,13 @@
+schema {
+    Simple
+}
+
+struct Simple {
+    field1: i32
+    field2: string
+}
+
+Simple {
+    field1 = 42
+    field2 = "hello"
+}

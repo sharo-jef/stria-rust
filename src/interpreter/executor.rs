@@ -3,6 +3,7 @@ use crate::interpreter::stdlib::get_builtin_functions;
 use crate::interpreter::value::Value;
 use crate::parser::ast::*;
 use indexmap::IndexMap;
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 
 pub struct Executor {
@@ -51,7 +52,7 @@ impl Executor {
         self.structs = structs;
     }
 
-    pub fn execute(&mut self, program: &Program) -> StriaResult<()> {
+    pub fn execute(&mut self, program: &Program) -> StriaResult<JsonValue> {
         // First pass: collect all struct declarations and schema directives
         for item in &program.items {
             match item {
@@ -63,34 +64,128 @@ impl Executor {
             }
         }
 
-        // Second pass: execute each item
+        // Second pass: execute each item and collect results
+        let mut results = HashMap::new();
         for item in &program.items {
-            self.execute_item(item)?;
+            if let Some((key, value)) = self.execute_item_with_result(item)? {
+                results.insert(key, value);
+            }
         }
 
-        Ok(())
+        // Convert results to JSON
+        self.convert_results_to_json(&results)
     }
 
-    fn execute_item(&mut self, item: &Item) -> StriaResult<()> {
+    fn execute_item_with_result(&mut self, item: &Item) -> StriaResult<Option<(String, Value)>> {
         match item {
             Item::StructDeclaration(_) => {
                 // Already handled in first pass
-                Ok(())
+                Ok(None)
             }
             Item::FunctionDeclaration(_) => {
                 // Already handled in first pass
-                Ok(())
+                Ok(None)
             }
-            Item::VariableDeclaration(var_decl) => self.execute_variable_declaration(var_decl),
+            Item::VariableDeclaration(var_decl) => {
+                self.execute_variable_declaration(var_decl)?;
+                // Get the variable value and return it
+                if let Some(value) = self.get_variable(&var_decl.name) {
+                    Ok(Some((var_decl.name.clone(), value)))
+                } else {
+                    Ok(None)
+                }
+            }
             Item::Expression(expr) => {
-                self.evaluate_expression(expr)?;
-                Ok(())
+                let value = self.evaluate_expression(expr)?;
+                // For struct instantiations, use the struct name as key
+                if let Expression::StructInstantiation(struct_inst) = expr {
+                    Ok(Some((struct_inst.name.clone(), value)))
+                } else {
+                    // For other expressions, use a default key
+                    Ok(Some(("result".to_string(), value)))
+                }
             }
-            _ => {
-                // Skip other items for now
-                Ok(())
+            Item::SchemaDirective(_) => {
+                // Schema directives don't produce output
+                Ok(None)
+            }
+            Item::SchemaDeclaration(_) => {
+                // Schema declarations don't produce output
+                Ok(None)
+            }
+            Item::UseStatement(_) => {
+                // Use statements don't produce output
+                Ok(None)
             }
         }
+    }
+
+    fn convert_results_to_json(&self, results: &HashMap<String, Value>) -> StriaResult<JsonValue> {
+        let mut json_obj = serde_json::Map::new();
+        
+        for (key, value) in results {
+            let json_value = self.value_to_json(value)?;
+            json_obj.insert(key.clone(), json_value);
+        }
+        
+        Ok(JsonValue::Object(json_obj))
+    }
+
+    fn value_to_json(&self, value: &Value) -> StriaResult<JsonValue> {
+        match value {
+            Value::Integer(i, _) => Ok(JsonValue::Number(serde_json::Number::from(*i))),
+            Value::Float(f, _) => {
+                if let Some(num) = serde_json::Number::from_f64(*f) {
+                    Ok(JsonValue::Number(num))
+                } else {
+                    Ok(JsonValue::Null)
+                }
+            }
+            Value::String(s) => Ok(JsonValue::String(s.clone())),
+            Value::Boolean(b) => Ok(JsonValue::Bool(*b)),
+            Value::Null => Ok(JsonValue::Null),
+            Value::List(elements) => {
+                let mut json_arr = Vec::new();
+                for element in elements {
+                    json_arr.push(self.value_to_json(element)?);
+                }
+                Ok(JsonValue::Array(json_arr))
+            }
+            Value::Struct(_, fields) => {
+                let mut json_obj = serde_json::Map::new();
+                for (field_name, field_value) in fields {
+                    json_obj.insert(field_name.clone(), self.value_to_json(field_value)?);
+                }
+                Ok(JsonValue::Object(json_obj))
+            }
+            Value::Optional(Some(val)) => self.value_to_json(val),
+            Value::Optional(None) => Ok(JsonValue::Null),
+            Value::I32Range { from, to, step } => {
+                let mut json_obj = serde_json::Map::new();
+                json_obj.insert("from".to_string(), JsonValue::Number(serde_json::Number::from(*from)));
+                json_obj.insert("to".to_string(), JsonValue::Number(serde_json::Number::from(*to)));
+                json_obj.insert("step".to_string(), JsonValue::Number(serde_json::Number::from(*step)));
+                Ok(JsonValue::Object(json_obj))
+            }
+            Value::F64Range { from, to, step } => {
+                let mut json_obj = serde_json::Map::new();
+                json_obj.insert("from".to_string(), JsonValue::Number(serde_json::Number::from_f64(*from).unwrap_or(serde_json::Number::from(0))));
+                json_obj.insert("to".to_string(), JsonValue::Number(serde_json::Number::from_f64(*to).unwrap_or(serde_json::Number::from(0))));
+                json_obj.insert("step".to_string(), JsonValue::Number(serde_json::Number::from_f64(*step).unwrap_or(serde_json::Number::from(0))));
+                Ok(JsonValue::Object(json_obj))
+            }
+            Value::Function(name) => Ok(JsonValue::String(format!("<function {}>", name))),
+            Value::Union(val, _) => self.value_to_json(val),
+        }
+    }
+
+    fn get_variable(&self, name: &str) -> Option<Value> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(value) = scope.variables.get(name) {
+                return Some(value.clone());
+            }
+        }
+        None
     }
 
     fn execute_variable_declaration(&mut self, var_decl: &VariableDeclaration) -> StriaResult<()> {

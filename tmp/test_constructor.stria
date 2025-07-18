@@ -1,0 +1,9 @@
+struct Simple {
+    init(this.field1) {
+        field2 = field1 as string
+    }
+    field1: i32
+    field2: string
+}
+
+Simple(42)

@@ -11,7 +11,7 @@
 
 - Use `nom` for parsing.
 - Use `serde` for serialization and deserialization.
-- Stria syntax is defined in the `spec/docs/index.md` file.
+- **Stria syntax is defined in the `spec/docs/index.md` file.** Strictly follow the syntax defined in the spec.
 - Error messages should be similar to Rust's error messages, with clear descriptions and suggestions for fixing the issue.
   - **Lexer, Parser, Semantic Analyzer, and Interpreter should output error messages suitable for a VSCode extension.**
   - When executed manually, similar error messages to Rust's should be output.

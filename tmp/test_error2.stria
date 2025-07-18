@@ -1,0 +1,7 @@
+#schema './schema.stria'
+
+SimpleStruct {
+    field1 = 42
+    "invalid_field" = "test"
+    field3 = true
+}

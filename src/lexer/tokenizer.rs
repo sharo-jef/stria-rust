@@ -41,7 +41,18 @@ impl Tokenizer {
 
             if let Some(token_kind) = token {
                 let end_pos = self.position;
-                let value = self.input[start_pos..end_pos].to_string();
+                let value = match token_kind {
+                    TokenKind::StringLiteral => {
+                        // Extract string content without quotes
+                        let full_string = &self.input[start_pos..end_pos];
+                        if full_string.len() >= 2 {
+                            full_string[1..full_string.len()-1].to_string()
+                        } else {
+                            full_string.to_string()
+                        }
+                    }
+                    _ => self.input[start_pos..end_pos].to_string(),
+                };
 
                 tokens.push(Token::new(
                     token_kind,
