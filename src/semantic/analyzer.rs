@@ -9,6 +9,9 @@ pub struct SemanticAnalyzer {
     imported_functions: std::collections::HashSet<String>,
     current_function: Option<String>,
     return_type: Option<Type>,
+    schema_declaration: Option<SchemaDeclaration>,
+    schema_reference: Option<SchemaDirective>,
+    is_schema_file: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +36,9 @@ impl SemanticAnalyzer {
             imported_functions: std::collections::HashSet::new(),
             current_function: None,
             return_type: None,
+            schema_declaration: None,
+            schema_reference: None,
+            is_schema_file: false,
         }
     }
 
@@ -57,6 +63,9 @@ impl SemanticAnalyzer {
             self.analyze_item(item)?;
         }
 
+        // Third pass: validate schema consistency
+        self.validate_schema_consistency()?;
+
         Ok(())
     }
 
@@ -66,12 +75,10 @@ impl SemanticAnalyzer {
             Item::FunctionDeclaration(func_decl) => self.analyze_function(func_decl),
             Item::VariableDeclaration(var_decl) => self.analyze_variable_declaration(var_decl),
             Item::UseStatement(use_stmt) => self.analyze_use_statement(use_stmt),
+            Item::SchemaDeclaration(schema_decl) => self.analyze_schema_declaration(schema_decl),
+            Item::SchemaDirective(schema_dir) => self.analyze_schema_directive(schema_dir),
             Item::Expression(expr) => {
                 self.analyze_expression(expr)?;
-                Ok(())
-            }
-            _ => {
-                // Skip other items for now
                 Ok(())
             }
         }
@@ -555,10 +562,18 @@ impl SemanticAnalyzer {
                 Ok(Type::Array(Box::new(element_type)))
             }
             TypeExpression::Identifier(name) => {
-                if self.structs.contains_key(name) {
-                    Ok(Type::Struct(name.clone()))
-                } else {
-                    Err(StriaError::semantic(format!("Undefined type '{}'", name)))
+                match name.as_str() {
+                    "int" => Ok(Type::Integer(IntegerType::I32)),
+                    "string" => Ok(Type::String),
+                    "bool" => Ok(Type::Boolean),
+                    "float" => Ok(Type::Float(FloatType::F64)),
+                    _ => {
+                        if self.structs.contains_key(name) {
+                            Ok(Type::Struct(name.clone()))
+                        } else {
+                            Err(StriaError::semantic(format!("Undefined type '{}'", name)))
+                        }
+                    }
                 }
             }
             _ => {
@@ -753,5 +768,107 @@ impl SemanticAnalyzer {
             name,
             "print" | "getEnv" | "random" | "int" | "float" | "str" | "len" | "error"
         )
+    }
+
+    fn analyze_schema_declaration(&mut self, schema_decl: &SchemaDeclaration) -> StriaResult<()> {
+        // Check if this is a schema file
+        if self.schema_reference.is_some() {
+            return Err(StriaError::semantic(
+                "Schema files cannot contain #schema directives".to_string()
+            ));
+        }
+
+        if self.schema_declaration.is_some() {
+            return Err(StriaError::semantic(
+                "Only one schema declaration is allowed per file".to_string()
+            ));
+        }
+
+        self.schema_declaration = Some(schema_decl.clone());
+        self.is_schema_file = true;
+
+        // Validate that all items in the schema declaration are valid struct names
+        for item_name in &schema_decl.items {
+            if !self.structs.contains_key(item_name) {
+                return Err(StriaError::semantic(format!(
+                    "Schema references undefined struct '{}'", item_name
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn analyze_schema_directive(&mut self, schema_dir: &SchemaDirective) -> StriaResult<()> {
+        // Check if this is a configuration file
+        if self.schema_declaration.is_some() {
+            return Err(StriaError::semantic(
+                "Configuration files cannot contain schema declarations".to_string()
+            ));
+        }
+
+        if self.schema_reference.is_some() {
+            return Err(StriaError::semantic(
+                "Only one #schema directive is allowed per file".to_string()
+            ));
+        }
+
+        self.schema_reference = Some(schema_dir.clone());
+        self.is_schema_file = false;
+
+        // Validate that the schema file exists and is valid
+        self.validate_schema_file(&schema_dir.path)?;
+
+        Ok(())
+    }
+
+    fn validate_schema_file(&self, schema_path: &str) -> StriaResult<()> {
+        // Check if schema file exists
+        if !std::path::Path::new(schema_path).exists() {
+            return Err(StriaError::semantic(format!(
+                "Schema file '{}' does not exist",
+                schema_path
+            )));
+        }
+
+        // TODO: Parse and validate the schema file
+        // For now, we'll just check that it has a .stria extension
+        if !schema_path.ends_with(".stria") {
+            return Err(StriaError::semantic(format!(
+                "Schema file '{}' must have .stria extension",
+                schema_path
+            )));
+        }
+
+        Ok(())
+    }
+
+    fn validate_schema_consistency(&self) -> StriaResult<()> {
+        // Check that configuration files have schema references
+        if !self.is_schema_file && self.schema_reference.is_none() {
+            return Err(StriaError::semantic(
+                "Configuration files must reference a schema using #schema directive".to_string()
+            ));
+        }
+
+        // Check that schema files don't have configuration data
+        if self.is_schema_file {
+            // Schema files should only contain:
+            // - Schema declarations (schema {...})
+            // - Struct declarations (struct {...})
+            // - Function declarations (fun {...})
+            // - Use statements (use {...})
+            // No variable declarations or expressions should be in schema files
+            self.validate_schema_file_contents()?;
+        }
+
+        Ok(())
+    }
+
+    fn validate_schema_file_contents(&self) -> StriaResult<()> {
+        // In a real implementation, this would check that the AST only contains
+        // allowed constructs for schema files
+        // For now, we'll just return OK as this is a demonstration
+        Ok(())
     }
 }

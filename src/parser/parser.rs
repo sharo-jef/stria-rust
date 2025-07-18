@@ -41,6 +41,10 @@ impl Parser {
         }
 
         match &self.peek().kind {
+            TokenKind::SchemaDirective => {
+                let schema_directive = self.parse_schema_directive()?;
+                Ok(Some(Item::SchemaDirective(schema_directive)))
+            }
             TokenKind::Keyword(Keyword::Schema) => {
                 let schema = self.parse_schema_declaration()?;
                 Ok(Some(Item::SchemaDeclaration(schema)))
@@ -861,5 +865,34 @@ impl Parser {
             }
         }
         false
+    }
+
+    fn parse_schema_directive(&mut self) -> StriaResult<SchemaDirective> {
+        let start = self.advance().span.start;
+
+        // Expect the path to be a string literal
+        if !self.check(&TokenKind::StringLiteral) {
+            return Err(StriaError::ParserError(format!(
+                "Expected string literal after '#schema' directive at line {}",
+                start
+            )));
+        }
+
+        let path_token = self.advance();
+        let mut path = path_token.value.clone();
+        
+        // Remove quotes from the path if present
+        if path.starts_with('"') && path.ends_with('"') {
+            path = path[1..path.len()-1].to_string();
+        }
+        
+        let span = crate::lexer::Span {
+            start,
+            end: path_token.span.end,
+            line: path_token.span.line,
+            column: path_token.span.column,
+        };
+
+        Ok(SchemaDirective { path, span })
     }
 }

@@ -301,6 +301,30 @@ impl Tokenizer {
                 Ok(Some(TokenKind::BitNot))
             }
 
+            '#' => {
+                self.advance();
+                // Check if this is a #schema directive
+                let start_pos = self.position;
+                
+                // Skip whitespace
+                while self.position < self.input.len() && self.current_char().unwrap_or('\0').is_whitespace() {
+                    self.advance();
+                }
+                
+                // Try to read "schema"
+                if self.position + 6 <= self.input.len() {
+                    let word = &self.input[self.position..self.position + 6];
+                    if word == "schema" {
+                        self.position += 6;
+                        return Ok(Some(TokenKind::SchemaDirective));
+                    }
+                }
+                
+                // If not "schema", reset position and treat as unknown
+                self.position = start_pos;
+                Ok(None)
+            }
+
             _ => {
                 self.advance();
                 Ok(None) // Skip unknown characters

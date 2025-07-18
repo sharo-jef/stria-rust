@@ -1,0 +1,9 @@
+schema {
+    SimpleStruct
+}
+
+struct SimpleStruct {
+    field1: i32
+    field2: string
+    field3: bool
+}
