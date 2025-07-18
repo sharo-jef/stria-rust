@@ -1,0 +1,11 @@
+schema struct SchemaStruct {
+    s: Simple
+}
+
+struct Simple {
+    init(this.field1) {
+        field2 = field1 as string
+    }
+    field1: i32
+    field2: string
+}

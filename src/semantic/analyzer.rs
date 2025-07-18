@@ -49,6 +49,10 @@ impl SemanticAnalyzer {
         &self.structs
     }
 
+    pub fn get_schema_declaration(&self) -> Option<SchemaDeclaration> {
+        self.schema_declaration.clone()
+    }
+
     pub fn analyze(&mut self, program: &Program, file_path: Option<&str>) -> StriaResult<()> {
         // Set current file path if provided
         if let Some(path) = file_path {
@@ -441,7 +445,7 @@ impl SemanticAnalyzer {
                 // First check if this is a direct struct instantiation
                 if let Some(struct_decl) = self.structs.get(&struct_instantiation.name) {
                     let struct_decl = struct_decl.clone();
-                    
+
                     // Check if arguments are field assignments (pairs of field_name, field_value)
                     if struct_instantiation.arguments.len() % 2 != 0 {
                         return Err(StriaError::semantic(format!(
@@ -468,12 +472,10 @@ impl SemanticAnalyzer {
                         // Get the field name
                         let field_name = match &struct_instantiation.arguments[field_name_idx] {
                             Expression::Identifier(name, _) => name.clone(),
-                            _ => {
-                                return Err(StriaError::semantic(format!(
-                                    "Expected field name as identifier in struct '{}' instantiation",
-                                    struct_instantiation.name
-                                )))
-                            }
+                            _ => return Err(StriaError::semantic(format!(
+                                "Expected field name as identifier in struct '{}' instantiation",
+                                struct_instantiation.name
+                            ))),
                         };
 
                         // Find the corresponding property
@@ -497,7 +499,10 @@ impl SemanticAnalyzer {
                             if !self.is_compatible_type(&expected_type, &value_type) {
                                 return Err(StriaError::semantic(format!(
                                     "Field '{}' of struct '{}' expects type '{:?}', got '{:?}'",
-                                    field_name, struct_instantiation.name, expected_type, value_type
+                                    field_name,
+                                    struct_instantiation.name,
+                                    expected_type,
+                                    value_type
                                 )));
                             }
                         }
@@ -511,7 +516,7 @@ impl SemanticAnalyzer {
                         // We need to resolve property-based instantiations
                         return self.resolve_property_based_instantiation(struct_instantiation);
                     }
-                    
+
                     // Not found anywhere
                     return Err(StriaError::semantic(format!(
                         "Undefined struct '{}'",
@@ -941,6 +946,11 @@ impl SemanticAnalyzer {
             self.structs.insert(name.clone(), struct_def.clone());
         }
 
+        // Import schema declaration from the schema
+        if let Some(schema_decl) = schema_analyzer.schema_declaration {
+            self.schema_declaration = Some(schema_decl);
+        }
+
         Ok(())
     }
 
@@ -1004,13 +1014,42 @@ impl SemanticAnalyzer {
         Ok(())
     }
 
-    fn resolve_property_based_instantiation(&self, struct_instantiation: &StructInstantiation) -> StriaResult<Type> {
-        // TODO: For now, we'll return an error but this should be implemented
-        // to resolve property-based instantiations in configuration files
+    fn resolve_property_based_instantiation(
+        &self,
+        struct_instantiation: &StructInstantiation,
+    ) -> StriaResult<Type> {
+        // Check if the name matches a property in the schema
+        if let Some(schema_decl) = &self.schema_declaration {
+            // Check if this is a property defined in the schema
+            if let Some(schema_item) = schema_decl
+                .items
+                .iter()
+                .find(|item| item.property_name == struct_instantiation.name)
+            {
+                // Get the struct type from the schema item
+                let struct_name = &schema_item.type_name;
+
+                // Check if the struct exists
+                if let Some(_struct_decl) = self.structs.get(struct_name) {
+                    // For now, we'll return the struct type
+                    // TODO: Validate the instantiation arguments against the struct
+                    return Ok(Type::Struct(struct_name.clone()));
+                } else {
+                    return Err(StriaError::semantic(format!(
+                        "Struct '{}' not found",
+                        struct_name
+                    )));
+                }
+            }
+        }
+
         Err(StriaError::parser_with_span_and_help(
-            format!("Property-based instantiation not yet implemented: '{}'", struct_instantiation.name),
+            format!(
+                "Property-based instantiation not found: '{}'",
+                struct_instantiation.name
+            ),
             struct_instantiation.span.clone(),
-            "Use struct instantiation with explicit type names instead".to_string(),
+            "Ensure the property is defined in the schema".to_string(),
         ))
     }
 }

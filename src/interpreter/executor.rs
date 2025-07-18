@@ -11,6 +11,7 @@ pub struct Executor {
     functions: HashMap<String, FunctionDeclaration>,
     builtins: HashMap<String, fn(&[Value]) -> StriaResult<Value>>,
     structs: HashMap<String, StructDeclaration>,
+    schema_declaration: Option<SchemaDeclaration>,
     return_value: Option<Value>,
     break_flag: bool,
     continue_flag: bool,
@@ -41,6 +42,7 @@ impl Executor {
             functions: HashMap::new(),
             builtins,
             structs: HashMap::new(),
+            schema_declaration: None,
             return_value: None,
             break_flag: false,
             continue_flag: false,
@@ -50,6 +52,11 @@ impl Executor {
     /// Set the struct definitions for the executor
     pub fn set_structs(&mut self, structs: HashMap<String, StructDeclaration>) {
         self.structs = structs;
+    }
+
+    /// Set the schema declaration for the executor
+    pub fn set_schema_declaration(&mut self, schema_declaration: Option<SchemaDeclaration>) {
+        self.schema_declaration = schema_declaration;
     }
 
     pub fn execute(&mut self, program: &Program) -> StriaResult<JsonValue> {
@@ -122,12 +129,12 @@ impl Executor {
 
     fn convert_results_to_json(&self, results: &HashMap<String, Value>) -> StriaResult<JsonValue> {
         let mut json_obj = serde_json::Map::new();
-        
+
         for (key, value) in results {
             let json_value = self.value_to_json(value)?;
             json_obj.insert(key.clone(), json_value);
         }
-        
+
         Ok(JsonValue::Object(json_obj))
     }
 
@@ -162,16 +169,40 @@ impl Executor {
             Value::Optional(None) => Ok(JsonValue::Null),
             Value::I32Range { from, to, step } => {
                 let mut json_obj = serde_json::Map::new();
-                json_obj.insert("from".to_string(), JsonValue::Number(serde_json::Number::from(*from)));
-                json_obj.insert("to".to_string(), JsonValue::Number(serde_json::Number::from(*to)));
-                json_obj.insert("step".to_string(), JsonValue::Number(serde_json::Number::from(*step)));
+                json_obj.insert(
+                    "from".to_string(),
+                    JsonValue::Number(serde_json::Number::from(*from)),
+                );
+                json_obj.insert(
+                    "to".to_string(),
+                    JsonValue::Number(serde_json::Number::from(*to)),
+                );
+                json_obj.insert(
+                    "step".to_string(),
+                    JsonValue::Number(serde_json::Number::from(*step)),
+                );
                 Ok(JsonValue::Object(json_obj))
             }
             Value::F64Range { from, to, step } => {
                 let mut json_obj = serde_json::Map::new();
-                json_obj.insert("from".to_string(), JsonValue::Number(serde_json::Number::from_f64(*from).unwrap_or(serde_json::Number::from(0))));
-                json_obj.insert("to".to_string(), JsonValue::Number(serde_json::Number::from_f64(*to).unwrap_or(serde_json::Number::from(0))));
-                json_obj.insert("step".to_string(), JsonValue::Number(serde_json::Number::from_f64(*step).unwrap_or(serde_json::Number::from(0))));
+                json_obj.insert(
+                    "from".to_string(),
+                    JsonValue::Number(
+                        serde_json::Number::from_f64(*from).unwrap_or(serde_json::Number::from(0)),
+                    ),
+                );
+                json_obj.insert(
+                    "to".to_string(),
+                    JsonValue::Number(
+                        serde_json::Number::from_f64(*to).unwrap_or(serde_json::Number::from(0)),
+                    ),
+                );
+                json_obj.insert(
+                    "step".to_string(),
+                    JsonValue::Number(
+                        serde_json::Number::from_f64(*step).unwrap_or(serde_json::Number::from(0)),
+                    ),
+                );
                 Ok(JsonValue::Object(json_obj))
             }
             Value::Function(name) => Ok(JsonValue::String(format!("<function {}>", name))),
@@ -241,6 +272,16 @@ impl Executor {
             Expression::Literal(literal) => Ok(self.literal_to_value(&literal.value)),
             Expression::Identifier(name, _) => self.lookup_variable(name),
             Expression::BinaryOp(binary_op) => {
+                // Special handling for assignment operations
+                if binary_op.operator == BinaryOperator::Equal {
+                    // Check if left side is an identifier (assignment)
+                    if let Expression::Identifier(name, _) = binary_op.left.as_ref() {
+                        let value = self.evaluate_expression(&binary_op.right)?;
+                        self.set_variable(name, value.clone())?;
+                        return Ok(value);
+                    }
+                }
+
                 let left = self.evaluate_expression(&binary_op.left)?;
                 let right = self.evaluate_expression(&binary_op.right)?;
 
@@ -323,164 +364,31 @@ impl Executor {
                 Ok(Value::List(values))
             }
             Expression::StructInstantiation(struct_instantiation) => {
-                let struct_decl = self
-                    .structs
-                    .get(&struct_instantiation.name)
-                    .ok_or_else(|| {
-                        StriaError::runtime(format!(
-                            "Undefined struct '{}'",
-                            struct_instantiation.name
-                        ))
-                    })?
-                    .clone();
-
-                let mut fields = IndexMap::new();
-
-                // Initialize required properties to null initially
-                for property in &struct_decl.properties {
-                    if property.is_optional {
-                        fields.insert(property.name.clone(), Value::Optional(None));
-                    } else {
-                        fields.insert(property.name.clone(), Value::Null);
-                    }
+                // First, try to find the struct directly
+                if let Some(struct_decl) = self.structs.get(&struct_instantiation.name) {
+                    let struct_decl = struct_decl.clone();
+                    return self.instantiate_struct(struct_instantiation, &struct_decl);
                 }
 
-                // Apply default values if specified
-                for property in &struct_decl.properties {
-                    if let Some(default_expr) = &property.default_value {
-                        let default_value = self.evaluate_expression(default_expr)?;
-                        fields.insert(property.name.clone(), default_value);
-                    }
-                }
-
-                let mut struct_value = Value::Struct(struct_instantiation.name.clone(), fields);
-
-                // Phase 1: Direct field assignments (if any)
-                if !struct_instantiation.arguments.is_empty() {
-                    // Check if this is field assignment syntax (pairs of field_name, field_value)
-                    if struct_instantiation.arguments.len() % 2 == 0 {
-                        // Process field assignments in pairs
-                        for i in (0..struct_instantiation.arguments.len()).step_by(2) {
-                            if let Expression::Identifier(field_name, _) =
-                                &struct_instantiation.arguments[i]
-                            {
-                                let field_value = self
-                                    .evaluate_expression(&struct_instantiation.arguments[i + 1])?;
-
-                                if let Value::Struct(_, ref mut fields) = struct_value {
-                                    fields.insert(field_name.clone(), field_value);
-                                }
-                            }
-                        }
-                    } else {
-                        // Fall back to constructor arguments
-                        // Find appropriate constructor
-                        let mut constructor = None;
-                        for init_method in &struct_decl.init_methods {
-                            if init_method.parameters.len() == struct_instantiation.arguments.len()
-                            {
-                                constructor = Some(init_method);
-                                break;
-                            }
-                        }
-
-                        if let Some(init_method) = constructor {
-                            // Evaluate arguments and bind to parameters
-                            for (arg_expr, param) in struct_instantiation
-                                .arguments
-                                .iter()
-                                .zip(init_method.parameters.iter())
-                            {
-                                let arg_value = self.evaluate_expression(arg_expr)?;
-                                if param.is_this {
-                                    // Handle primary constructor parameter assignment
-                                    let param_name = param.name.trim_start_matches("this.");
-                                    if let Value::Struct(_, ref mut fields) = struct_value {
-                                        fields.insert(param_name.to_string(), arg_value);
-                                    }
-                                }
-                            }
+                // If not found, check if this is a property-based instantiation
+                if let Some(schema_decl) = &self.schema_declaration {
+                    if let Some(schema_item) = schema_decl
+                        .items
+                        .iter()
+                        .find(|item| item.property_name == struct_instantiation.name)
+                    {
+                        let struct_name = &schema_item.type_name;
+                        if let Some(struct_decl) = self.structs.get(struct_name) {
+                            let struct_decl = struct_decl.clone();
+                            return self.instantiate_struct(struct_instantiation, &struct_decl);
                         }
                     }
                 }
 
-                // Phase 2: Postfix lambda (initialization block)
-                if let Some(initializer) = &struct_instantiation.initializer {
-                    // Create a scope for the struct instance
-                    self.push_scope();
-
-                    // Bind struct fields to current scope
-                    if let Value::Struct(_, ref fields) = struct_value {
-                        for (field_name, field_value) in fields {
-                            self.declare_variable(field_name, field_value.clone())?;
-                        }
-                    }
-
-                    // Execute the initializer block
-                    self.execute_block(initializer)?;
-
-                    // Update struct fields from scope
-                    if let Value::Struct(_, ref mut fields) = struct_value {
-                        for (field_name, _) in fields.clone() {
-                            if let Ok(new_value) = self.lookup_variable(&field_name) {
-                                fields.insert(field_name, new_value);
-                            }
-                        }
-                    }
-
-                    self.pop_scope();
-                }
-
-                // Phase 3: Init method execution
-                for init_method in &struct_decl.init_methods {
-                    if let Some(body) = &init_method.body {
-                        self.push_scope();
-
-                        // Bind struct fields to current scope
-                        if let Value::Struct(_, ref fields) = struct_value {
-                            for (field_name, field_value) in fields {
-                                self.declare_variable(field_name, field_value.clone())?;
-                            }
-                        }
-
-                        // Execute init method body
-                        self.execute_block(body)?;
-
-                        // Update struct fields from scope
-                        if let Value::Struct(_, ref mut fields) = struct_value {
-                            for (field_name, _) in fields.clone() {
-                                if let Ok(new_value) = self.lookup_variable(&field_name) {
-                                    fields.insert(field_name, new_value);
-                                }
-                            }
-                        }
-
-                        self.pop_scope();
-                    }
-                }
-
-                // Validate that all required properties have been assigned
-                if let Value::Struct(_, ref fields) = struct_value {
-                    for property in &struct_decl.properties {
-                        if !property.is_optional {
-                            if let Some(field_value) = fields.get(&property.name) {
-                                if matches!(field_value, Value::Null) {
-                                    return Err(StriaError::runtime(format!(
-                                        "Required property '{}' not assigned in struct '{}'",
-                                        property.name, struct_instantiation.name
-                                    )));
-                                }
-                            } else {
-                                return Err(StriaError::runtime(format!(
-                                    "Required property '{}' not assigned in struct '{}'",
-                                    property.name, struct_instantiation.name
-                                )));
-                            }
-                        }
-                    }
-                }
-
-                Ok(struct_value)
+                Err(StriaError::runtime(format!(
+                    "Undefined struct '{}'",
+                    struct_instantiation.name
+                )))
             }
             Expression::Block(block) => {
                 self.push_scope();
@@ -952,5 +860,201 @@ impl Executor {
             }
             Pattern::Wildcard => Ok(true),
         }
+    }
+
+    fn instantiate_struct(
+        &mut self,
+        struct_instantiation: &StructInstantiation,
+        struct_decl: &StructDeclaration,
+    ) -> StriaResult<Value> {
+        let mut fields = IndexMap::new();
+
+        // Initialize required properties to null initially
+        for property in &struct_decl.properties {
+            if property.is_optional {
+                fields.insert(property.name.clone(), Value::Optional(None));
+            } else {
+                fields.insert(property.name.clone(), Value::Null);
+            }
+        }
+
+        // Apply default values if specified
+        for property in &struct_decl.properties {
+            if let Some(default_expr) = &property.default_value {
+                let default_value = self.evaluate_expression(default_expr)?;
+                fields.insert(property.name.clone(), default_value);
+            }
+        }
+
+        let mut struct_value = Value::Struct(struct_decl.name.clone(), fields);
+
+        // Phase 1: Direct field assignments (if any)
+        if !struct_instantiation.arguments.is_empty() {
+            // Check if this is field assignment syntax (pairs of field_name, field_value)
+            if struct_instantiation.arguments.len() % 2 == 0 {
+                // Process field assignments in pairs
+                for i in (0..struct_instantiation.arguments.len()).step_by(2) {
+                    if let Expression::Identifier(field_name, _) =
+                        &struct_instantiation.arguments[i]
+                    {
+                        let field_value =
+                            self.evaluate_expression(&struct_instantiation.arguments[i + 1])?;
+
+                        if let Value::Struct(_, ref mut fields) = struct_value {
+                            fields.insert(field_name.clone(), field_value);
+                        }
+                    }
+                }
+            } else {
+                // Fall back to constructor arguments
+                // Find appropriate constructor
+                let mut constructor = None;
+                for init_method in &struct_decl.init_methods {
+                    if init_method.parameters.len() == struct_instantiation.arguments.len() {
+                        constructor = Some(init_method);
+                        break;
+                    }
+                }
+
+                if let Some(init_method) = constructor {
+                    // Evaluate arguments and bind to parameters
+                    for (arg_expr, param) in struct_instantiation
+                        .arguments
+                        .iter()
+                        .zip(init_method.parameters.iter())
+                    {
+                        let arg_value = self.evaluate_expression(arg_expr)?;
+                        if param.is_this {
+                            // Handle primary constructor parameter assignment
+                            let param_name = param.name.trim_start_matches("this.");
+                            if let Value::Struct(_, ref mut fields) = struct_value {
+                                fields.insert(param_name.to_string(), arg_value);
+                            }
+                        } else {
+                            // For non-this parameters, create a variable in the scope
+                            self.declare_variable(&param.name, arg_value)?;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Phase 2: Postfix lambda (initialization block)
+        if let Some(initializer) = &struct_instantiation.initializer {
+            // Create a scope for the struct instance
+            self.push_scope();
+
+            // Bind struct fields to current scope
+            if let Value::Struct(_, ref fields) = struct_value {
+                for (field_name, field_value) in fields {
+                    self.declare_variable(field_name, field_value.clone())?;
+                }
+            }
+
+            // Execute the initializer block
+            self.execute_block(initializer)?;
+
+            // Update struct fields from scope
+            if let Value::Struct(_, ref mut fields) = struct_value {
+                for (field_name, _) in fields.clone() {
+                    if let Ok(new_value) = self.lookup_variable(&field_name) {
+                        fields.insert(field_name, new_value);
+                    }
+                }
+            }
+
+            self.pop_scope();
+        }
+
+        // Phase 3: Init method execution
+        // Find and execute the appropriate init method
+        let mut executed_init = false;
+        for init_method in &struct_decl.init_methods {
+            // Check if this init method matches our arguments
+            if init_method.parameters.len() == struct_instantiation.arguments.len() {
+                if let Some(body) = &init_method.body {
+                    self.push_scope();
+
+                    // Bind struct fields to current scope
+                    if let Value::Struct(_, ref fields) = struct_value {
+                        for (field_name, field_value) in fields {
+                            self.declare_variable(field_name, field_value.clone())?;
+                        }
+                    }
+
+                    // Execute init method body
+                    self.execute_block(body)?;
+
+                    // Update struct fields from scope
+                    if let Value::Struct(_, ref mut fields) = struct_value {
+                        for (field_name, _) in fields.clone() {
+                            if let Ok(new_value) = self.lookup_variable(&field_name) {
+                                fields.insert(field_name, new_value);
+                            }
+                        }
+                    }
+
+                    self.pop_scope();
+                    executed_init = true;
+                    break;
+                }
+            }
+        }
+
+        // If no parameterized init method was executed, try to run the default init
+        if !executed_init {
+            for init_method in &struct_decl.init_methods {
+                if init_method.parameters.is_empty() {
+                    if let Some(body) = &init_method.body {
+                        self.push_scope();
+
+                        // Bind struct fields to current scope
+                        if let Value::Struct(_, ref fields) = struct_value {
+                            for (field_name, field_value) in fields {
+                                self.declare_variable(field_name, field_value.clone())?;
+                            }
+                        }
+
+                        // Execute init method body
+                        self.execute_block(body)?;
+
+                        // Update struct fields from scope
+                        if let Value::Struct(_, ref mut fields) = struct_value {
+                            for (field_name, _) in fields.clone() {
+                                if let Ok(new_value) = self.lookup_variable(&field_name) {
+                                    fields.insert(field_name, new_value);
+                                }
+                            }
+                        }
+
+                        self.pop_scope();
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Validate that all required properties have been assigned
+        if let Value::Struct(_, ref fields) = struct_value {
+            for property in &struct_decl.properties {
+                if !property.is_optional {
+                    if let Some(field_value) = fields.get(&property.name) {
+                        if matches!(field_value, Value::Null) {
+                            return Err(StriaError::runtime(format!(
+                                "Required property '{}' not assigned in struct '{}'",
+                                property.name, struct_decl.name
+                            )));
+                        }
+                    } else {
+                        return Err(StriaError::runtime(format!(
+                            "Required property '{}' not assigned in struct '{}'",
+                            property.name, struct_decl.name
+                        )));
+                    }
+                }
+            }
+        }
+
+        Ok(struct_value)
     }
 }

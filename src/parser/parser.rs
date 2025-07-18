@@ -91,12 +91,12 @@ impl Parser {
             if let TokenKind::Identifier = self.peek().kind {
                 let first_name = self.advance().value.clone();
                 let first_token_span = self.previous().span.clone();
-                
+
                 // Check if this is the old format (just struct names) or new format (property: Type)
                 if self.check(&TokenKind::Colon) {
                     // New format: property: Type
                     self.advance(); // consume ':'
-                    
+
                     // Parse type name
                     if let TokenKind::Identifier = self.peek().kind {
                         let type_token = self.advance();
@@ -123,7 +123,7 @@ impl Parser {
                     "Expected property name or struct name in schema".to_string(),
                 ));
             }
-            
+
             // Optional comma
             if self.check(&TokenKind::Comma) {
                 self.advance();
@@ -874,7 +874,7 @@ impl Parser {
 
                 // Check if this is a struct instantiation with optional parentheses
                 if self.check(&TokenKind::LeftParen) {
-                    self.advance(); // consume '('
+                    let left_paren_span = self.advance().span.clone(); // consume '(' and remember its position
 
                     let mut arguments = Vec::new();
 
@@ -887,9 +887,47 @@ impl Parser {
                     }
 
                     if !self.match_token(&TokenKind::RightParen) {
+                        // Calculate the error position: after the last argument or after the opening '('
+                        let error_span = if let Some(last_arg) = arguments.last() {
+                            // Get the span of the last argument and point to the position after it
+                            let last_span = match last_arg {
+                                Expression::Literal(lit) => &lit.span,
+                                Expression::Identifier(_, span) => span,
+                                Expression::Call(call) => &call.span,
+                                Expression::StructInstantiation(struct_inst) => &struct_inst.span,
+                                Expression::BinaryOp(binary) => &binary.span,
+                                Expression::UnaryOp(unary) => &unary.span,
+                                Expression::MemberAccess(member) => &member.span,
+                                Expression::IndexAccess(index) => &index.span,
+                                Expression::If(if_expr) => &if_expr.span,
+                                Expression::Match(match_expr) => &match_expr.span,
+                                Expression::Lambda(lambda) => &lambda.span,
+                                Expression::List(_, span) => span,
+                                Expression::Range(range) => &range.span,
+                                Expression::TypeCast(cast) => &cast.span,
+                                Expression::Block(block) => &block.span,
+                                Expression::Error(_, span) => span,
+                            };
+                            // Create a span that points to the end of the last argument
+                            crate::lexer::Span::new(
+                                last_span.end,
+                                last_span.end,
+                                last_span.line,
+                                last_span.column + (last_span.end - last_span.start),
+                            )
+                        } else {
+                            // If no arguments, point to the position after the opening '('
+                            crate::lexer::Span::new(
+                                left_paren_span.end,
+                                left_paren_span.end,
+                                left_paren_span.line,
+                                left_paren_span.column + 1,
+                            )
+                        };
+
                         return Err(StriaError::parser_with_span(
-                            "Expected ')' after struct arguments".to_string(),
-                            self.peek().span.clone(),
+                            "Expected ')' after expression".to_string(),
+                            error_span,
                         ));
                     }
 

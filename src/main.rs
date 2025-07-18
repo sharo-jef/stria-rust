@@ -87,6 +87,7 @@ fn run_stria(source: &str, filename: &str, format: OutputFormat) -> Result<(), S
     // Execute
     let mut executor = Executor::new();
     executor.set_structs(analyzer.get_structs().clone());
+    executor.set_schema_declaration(analyzer.get_schema_declaration());
     let result = executor.execute(&ast)?;
 
     // Output in the specified format
