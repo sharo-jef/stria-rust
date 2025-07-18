@@ -33,13 +33,15 @@ fn main() {
         }
     };
 
-    if let Err(err) = run_stria(&source) {
+    if let Err(err) = run_stria(&source, filename) {
         eprintln!("Error: {}", err);
         process::exit(1);
+    } else {
+        println!("Successfully processed: {}", filename);
     }
 }
 
-fn run_stria(source: &str) -> Result<(), StriaError> {
+fn run_stria(source: &str, filename: &str) -> Result<(), StriaError> {
     // Tokenize
     let mut tokenizer = Tokenizer::new();
     let tokens = tokenizer.tokenize(source)?;
@@ -50,10 +52,11 @@ fn run_stria(source: &str) -> Result<(), StriaError> {
 
     // Semantic analysis
     let mut analyzer = SemanticAnalyzer::new();
-    analyzer.analyze(&ast)?;
+    analyzer.analyze(&ast, Some(filename))?;
 
     // Execute
     let mut executor = Executor::new();
+    executor.set_structs(analyzer.get_structs().clone());
     executor.execute(&ast)?;
 
     Ok(())

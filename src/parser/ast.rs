@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::lexer::Span;
 use std::collections::HashMap;
 

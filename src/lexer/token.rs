@@ -60,6 +60,7 @@ pub enum TokenKind {
     PlusAssign,    // +=
     MinusAssign,   // -=
     StarAssign,    // *=
+    #[allow(dead_code)]
     SlashAssign,   // /=
     PercentAssign, // %=
 
@@ -80,8 +81,11 @@ pub enum TokenKind {
     RangeInclusive, // ..=
 
     // Special
+    #[allow(dead_code)]
     Comment,
+    #[allow(dead_code)]
     Whitespace,
+    #[allow(dead_code)]
     Newline,
     Eof,
 
@@ -92,6 +96,7 @@ pub enum TokenKind {
     Spread, // ...
 
     // Null assertion
+    #[allow(dead_code)]
     NullAssert, // !
 
     // Type cast
@@ -151,8 +156,11 @@ pub enum Keyword {
     Bool,
 
     // Literals
+    #[allow(dead_code)]
     True,
+    #[allow(dead_code)]
     False,
+    #[allow(dead_code)]
     Null,
 
     // Modifiers
@@ -178,10 +186,15 @@ pub enum Keyword {
     Infix,
 
     // Annotation keywords
+    #[allow(dead_code)]
     Description,
+    #[allow(dead_code)]
     Name,
+    #[allow(dead_code)]
     Deprecated,
+    #[allow(dead_code)]
     Serialize,
+    #[allow(dead_code)]
     Flatten,
 }
 
@@ -190,10 +203,12 @@ impl Token {
         Self { kind, span, value }
     }
 
+    #[allow(dead_code)]
     pub fn is_keyword(&self) -> bool {
         matches!(self.kind, TokenKind::Keyword(_))
     }
 
+    #[allow(dead_code)]
     pub fn is_operator(&self) -> bool {
         matches!(
             self.kind,
@@ -221,6 +236,7 @@ impl Token {
         )
     }
 
+    #[allow(dead_code)]
     pub fn is_punctuation(&self) -> bool {
         matches!(
             self.kind,
@@ -252,12 +268,14 @@ impl Span {
         }
     }
 
+    #[allow(dead_code)]
     pub fn dummy() -> Self {
         Self::new(0, 0, 1, 1)
     }
 }
 
 impl IntegerType {
+    #[allow(dead_code)]
     pub fn from_suffix(suffix: &str) -> Option<Self> {
         match suffix {
             "i8" => Some(IntegerType::I8),
@@ -274,6 +292,7 @@ impl IntegerType {
 }
 
 impl FloatType {
+    #[allow(dead_code)]
     pub fn from_suffix(suffix: &str) -> Option<Self> {
         match suffix {
             "f32" => Some(FloatType::F32),
@@ -284,6 +303,7 @@ impl FloatType {
 }
 
 impl Keyword {
+    #[allow(dead_code)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "if" => Some(Keyword::If),

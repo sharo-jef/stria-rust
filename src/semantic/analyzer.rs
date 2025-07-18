@@ -12,6 +12,7 @@ pub struct SemanticAnalyzer {
     schema_declaration: Option<SchemaDeclaration>,
     schema_reference: Option<SchemaDirective>,
     is_schema_file: bool,
+    current_file_path: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -39,10 +40,21 @@ impl SemanticAnalyzer {
             schema_declaration: None,
             schema_reference: None,
             is_schema_file: false,
+            current_file_path: None,
         }
     }
 
-    pub fn analyze(&mut self, program: &Program) -> StriaResult<()> {
+    /// Get the collected struct definitions
+    pub fn get_structs(&self) -> &HashMap<String, StructDeclaration> {
+        &self.structs
+    }
+
+    pub fn analyze(&mut self, program: &Program, file_path: Option<&str>) -> StriaResult<()> {
+        // Set current file path if provided
+        if let Some(path) = file_path {
+            self.current_file_path = Some(std::path::PathBuf::from(path));
+        }
+
         // First pass: collect all struct and function declarations
         for item in &program.items {
             match item {
@@ -437,29 +449,62 @@ impl SemanticAnalyzer {
                     })?
                     .clone();
 
-                // For now, just check argument count
-                if struct_instantiation.arguments.len() != struct_decl.properties.len() {
+                // Check if arguments are field assignments (pairs of field_name, field_value)
+                if struct_instantiation.arguments.len() % 2 != 0 {
                     return Err(StriaError::semantic(format!(
-                        "Struct '{}' expects {} arguments, got {}",
-                        struct_instantiation.name,
-                        struct_decl.properties.len(),
-                        struct_instantiation.arguments.len()
+                        "Struct '{}' field assignments must be in pairs (field_name, field_value)",
+                        struct_instantiation.name
                     )));
                 }
 
-                // Check argument types
-                for (arg, property) in struct_instantiation
-                    .arguments
-                    .iter()
-                    .zip(struct_decl.properties.iter())
-                {
-                    let arg_type = self.analyze_expression(arg)?;
+                let field_assignment_count = struct_instantiation.arguments.len() / 2;
+                if field_assignment_count != struct_decl.properties.len() {
+                    return Err(StriaError::semantic(format!(
+                        "Struct '{}' expects {} fields, got {}",
+                        struct_instantiation.name,
+                        struct_decl.properties.len(),
+                        field_assignment_count
+                    )));
+                }
+
+                // Check field assignments
+                for i in 0..field_assignment_count {
+                    let field_name_idx = i * 2;
+                    let field_value_idx = i * 2 + 1;
+
+                    // Get the field name
+                    let field_name = match &struct_instantiation.arguments[field_name_idx] {
+                        Expression::Identifier(name, _) => name.clone(),
+                        _ => {
+                            return Err(StriaError::semantic(format!(
+                                "Expected field name as identifier in struct '{}' instantiation",
+                                struct_instantiation.name
+                            )))
+                        }
+                    };
+
+                    // Find the corresponding property
+                    let property = struct_decl
+                        .properties
+                        .iter()
+                        .find(|p| p.name == field_name)
+                        .ok_or_else(|| {
+                            StriaError::semantic(format!(
+                                "Struct '{}' does not have field '{}'",
+                                struct_instantiation.name, field_name
+                            ))
+                        })?;
+
+                    // Check the field value type
+                    let field_value = &struct_instantiation.arguments[field_value_idx];
+                    let value_type = self.analyze_expression(field_value)?;
+
                     if let Some(ref type_annotation) = property.type_annotation {
                         let expected_type = self.type_annotation_to_type(type_annotation)?;
-                        if !self.is_compatible_type(&expected_type, &arg_type) {
+                        if !self.is_compatible_type(&expected_type, &value_type) {
                             return Err(StriaError::semantic(format!(
-                                "Argument type mismatch in struct '{}': expected {:?}, got {:?}",
-                                struct_instantiation.name, expected_type, arg_type
+                                "Field '{}' of struct '{}' expects type '{:?}', got '{:?}'",
+                                field_name, struct_instantiation.name, expected_type, value_type
                             )));
                         }
                     }
@@ -561,21 +606,29 @@ impl SemanticAnalyzer {
                 })?;
                 Ok(Type::Array(Box::new(element_type)))
             }
-            TypeExpression::Identifier(name) => {
-                match name.as_str() {
-                    "int" => Ok(Type::Integer(IntegerType::I32)),
-                    "string" => Ok(Type::String),
-                    "bool" => Ok(Type::Boolean),
-                    "float" => Ok(Type::Float(FloatType::F64)),
-                    _ => {
-                        if self.structs.contains_key(name) {
-                            Ok(Type::Struct(name.clone()))
-                        } else {
-                            Err(StriaError::semantic(format!("Undefined type '{}'", name)))
-                        }
+            TypeExpression::Identifier(name) => match name.as_str() {
+                "int" => Ok(Type::Integer(IntegerType::I32)),
+                "string" => Ok(Type::String),
+                "bool" => Ok(Type::Boolean),
+                "float" => Ok(Type::Float(FloatType::F64)),
+                "i8" => Ok(Type::Integer(IntegerType::I8)),
+                "i16" => Ok(Type::Integer(IntegerType::I16)),
+                "i32" => Ok(Type::Integer(IntegerType::I32)),
+                "i64" => Ok(Type::Integer(IntegerType::I64)),
+                "u8" => Ok(Type::Integer(IntegerType::U8)),
+                "u16" => Ok(Type::Integer(IntegerType::U16)),
+                "u32" => Ok(Type::Integer(IntegerType::U32)),
+                "u64" => Ok(Type::Integer(IntegerType::U64)),
+                "f32" => Ok(Type::Float(FloatType::F32)),
+                "f64" => Ok(Type::Float(FloatType::F64)),
+                _ => {
+                    if self.structs.contains_key(name) {
+                        Ok(Type::Struct(name.clone()))
+                    } else {
+                        Err(StriaError::semantic(format!("Undefined type '{}'", name)))
                     }
                 }
-            }
+            },
             _ => {
                 // Skip other type expressions for now
                 Ok(Type::Void)
@@ -714,6 +767,7 @@ impl SemanticAnalyzer {
         self.scopes.pop();
     }
 
+    #[allow(dead_code)]
     fn has_return_statement(&self, block: &Block) -> bool {
         for stmt in &block.statements {
             if self.statement_has_return(stmt) {
@@ -723,6 +777,7 @@ impl SemanticAnalyzer {
         false
     }
 
+    #[allow(dead_code)]
     fn statement_has_return(&self, stmt: &Statement) -> bool {
         match stmt {
             Statement::Return(_) => true,
@@ -774,13 +829,13 @@ impl SemanticAnalyzer {
         // Check if this is a schema file
         if self.schema_reference.is_some() {
             return Err(StriaError::semantic(
-                "Schema files cannot contain #schema directives".to_string()
+                "Schema files cannot contain #schema directives".to_string(),
             ));
         }
 
         if self.schema_declaration.is_some() {
             return Err(StriaError::semantic(
-                "Only one schema declaration is allowed per file".to_string()
+                "Only one schema declaration is allowed per file".to_string(),
             ));
         }
 
@@ -791,7 +846,8 @@ impl SemanticAnalyzer {
         for item_name in &schema_decl.items {
             if !self.structs.contains_key(item_name) {
                 return Err(StriaError::semantic(format!(
-                    "Schema references undefined struct '{}'", item_name
+                    "Schema references undefined struct '{}'",
+                    item_name
                 )));
             }
         }
@@ -803,13 +859,13 @@ impl SemanticAnalyzer {
         // Check if this is a configuration file
         if self.schema_declaration.is_some() {
             return Err(StriaError::semantic(
-                "Configuration files cannot contain schema declarations".to_string()
+                "Configuration files cannot contain schema declarations".to_string(),
             ));
         }
 
         if self.schema_reference.is_some() {
             return Err(StriaError::semantic(
-                "Only one #schema directive is allowed per file".to_string()
+                "Only one #schema directive is allowed per file".to_string(),
             ));
         }
 
@@ -819,15 +875,83 @@ impl SemanticAnalyzer {
         // Validate that the schema file exists and is valid
         self.validate_schema_file(&schema_dir.path)?;
 
+        // Parse and import the schema file
+        self.import_schema_file(&schema_dir.path)?;
+
+        Ok(())
+    }
+
+    fn import_schema_file(&mut self, schema_path: &str) -> StriaResult<()> {
+        // Resolve the schema path relative to the current file
+        let resolved_path = if let Some(current_file) = &self.current_file_path {
+            let current_dir = current_file
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."));
+            current_dir.join(schema_path)
+        } else {
+            std::path::PathBuf::from(schema_path)
+        };
+
+        // Read the schema file
+        let schema_content = std::fs::read_to_string(&resolved_path).map_err(|e| {
+            StriaError::semantic(format!(
+                "Failed to read schema file '{}': {}",
+                resolved_path.display(),
+                e
+            ))
+        })?;
+
+        // Parse the schema file
+        let mut tokenizer = crate::lexer::tokenizer::Tokenizer::new();
+        let tokens = tokenizer.tokenize(&schema_content).map_err(|e| {
+            StriaError::semantic(format!(
+                "Failed to tokenize schema file '{}': {}",
+                resolved_path.display(),
+                e
+            ))
+        })?;
+
+        let mut parser = crate::parser::Parser::new(tokens);
+        let schema_program = parser.parse().map_err(|e| {
+            StriaError::semantic(format!(
+                "Failed to parse schema file '{}': {}",
+                resolved_path.display(),
+                e
+            ))
+        })?;
+
+        // Create a new analyzer for the schema file
+        let mut schema_analyzer = SemanticAnalyzer::new();
+        schema_analyzer.current_file_path = Some(resolved_path.clone());
+        schema_analyzer.is_schema_file = true;
+
+        // Analyze the schema file
+        schema_analyzer.analyze(&schema_program, Some(resolved_path.to_str().unwrap()))?;
+
+        // Import struct definitions from the schema
+        for (name, struct_def) in schema_analyzer.structs.iter() {
+            self.structs.insert(name.clone(), struct_def.clone());
+        }
+
         Ok(())
     }
 
     fn validate_schema_file(&self, schema_path: &str) -> StriaResult<()> {
+        // Resolve the schema path relative to the current file
+        let resolved_path = if let Some(current_file) = &self.current_file_path {
+            let current_dir = current_file
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."));
+            current_dir.join(schema_path)
+        } else {
+            std::path::PathBuf::from(schema_path)
+        };
+
         // Check if schema file exists
-        if !std::path::Path::new(schema_path).exists() {
+        if !resolved_path.exists() {
             return Err(StriaError::semantic(format!(
                 "Schema file '{}' does not exist",
-                schema_path
+                resolved_path.display()
             )));
         }
 
@@ -847,7 +971,7 @@ impl SemanticAnalyzer {
         // Check that configuration files have schema references
         if !self.is_schema_file && self.schema_reference.is_none() {
             return Err(StriaError::semantic(
-                "Configuration files must reference a schema using #schema directive".to_string()
+                "Configuration files must reference a schema using #schema directive".to_string(),
             ));
         }
 

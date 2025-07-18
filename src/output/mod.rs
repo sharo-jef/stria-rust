@@ -3,6 +3,7 @@ use serde_json::Value as JsonValue;
 
 /// Output format for compiled Stria configuration
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub enum OutputFormat {
     Json,
     Yaml,
@@ -10,6 +11,7 @@ pub enum OutputFormat {
 }
 
 impl OutputFormat {
+    #[allow(dead_code)]
     pub fn from_str(s: &str) -> Option<OutputFormat> {
         match s.to_lowercase().as_str() {
             "json" => Some(OutputFormat::Json),
@@ -21,10 +23,12 @@ impl OutputFormat {
 }
 
 /// Configuration output generator
+#[allow(dead_code)]
 pub struct OutputGenerator;
 
 impl OutputGenerator {
     /// Generate output in the specified format
+    #[allow(dead_code)]
     pub fn generate(data: &JsonValue, format: OutputFormat) -> StriaResult<String> {
         match format {
             OutputFormat::Json => Self::generate_json(data),
@@ -33,18 +37,21 @@ impl OutputGenerator {
         }
     }
 
+    #[allow(dead_code)]
     fn generate_json(data: &JsonValue) -> StriaResult<String> {
         serde_json::to_string_pretty(data).map_err(|e| {
             crate::error::StriaError::RuntimeError(format!("JSON serialization failed: {}", e))
         })
     }
 
+    #[allow(dead_code)]
     fn generate_yaml(data: &JsonValue) -> StriaResult<String> {
         serde_yaml::to_string(data).map_err(|e| {
             crate::error::StriaError::RuntimeError(format!("YAML serialization failed: {}", e))
         })
     }
 
+    #[allow(dead_code)]
     fn generate_toml(data: &JsonValue) -> StriaResult<String> {
         // Convert JsonValue to toml::Value
         let toml_value = json_to_toml(data)?;
@@ -54,6 +61,7 @@ impl OutputGenerator {
     }
 }
 
+#[allow(dead_code)]
 fn json_to_toml(value: &JsonValue) -> StriaResult<toml::Value> {
     match value {
         JsonValue::Null => Ok(toml::Value::String("null".to_string())),

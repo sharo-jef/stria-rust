@@ -2,7 +2,6 @@
 use crate::error::{StriaError, StriaResult};
 use crate::parser::ast::*;
 use indexmap::IndexMap;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -12,15 +11,25 @@ pub enum Value {
     Boolean(bool),
     Null,
     List(Vec<Value>),
-    I32Range { from: i32, to: i32, step: i32 },
-    F64Range { from: f64, to: f64, step: f64 },
+    I32Range {
+        from: i32,
+        to: i32,
+        step: i32,
+    },
+    F64Range {
+        from: f64,
+        to: f64,
+        step: f64,
+    },
     Struct(String, IndexMap<String, Value>),
     Function(String),
     Optional(Option<Box<Value>>),
+    #[allow(dead_code)]
     Union(Box<Value>, Vec<Type>), // Value with possible types
 }
 
 impl Value {
+    #[allow(dead_code)]
     pub fn get_type(&self) -> Type {
         match self {
             Value::Integer(_, int_type) => Type::Integer(int_type.clone()),
@@ -536,6 +545,7 @@ impl Value {
     }
 
     // List operations
+    #[allow(dead_code)]
     pub fn push(&mut self, value: Value) -> StriaResult<()> {
         match self {
             Value::List(elements) => {
@@ -548,6 +558,8 @@ impl Value {
         }
     }
 
+    #[allow(dead_code)]
+    #[allow(dead_code)]
     pub fn pop(&mut self) -> StriaResult<Value> {
         match self {
             Value::List(elements) => elements
@@ -559,6 +571,7 @@ impl Value {
         }
     }
 
+    #[allow(dead_code)]
     pub fn insert(&mut self, index: usize, value: Value) -> StriaResult<()> {
         match self {
             Value::List(elements) => {
@@ -578,6 +591,7 @@ impl Value {
         }
     }
 
+    #[allow(dead_code)]
     pub fn remove(&mut self, index: usize) -> StriaResult<Value> {
         match self {
             Value::List(elements) => {
@@ -596,6 +610,7 @@ impl Value {
         }
     }
 
+    #[allow(dead_code)]
     pub fn len(&self) -> StriaResult<Value> {
         match self {
             Value::List(elements) => Ok(Value::Integer(elements.len() as i64, IntegerType::I32)),
@@ -606,6 +621,7 @@ impl Value {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> StriaResult<bool> {
         match self {
             Value::List(elements) => Ok(elements.is_empty()),

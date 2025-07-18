@@ -19,12 +19,15 @@ pub enum StriaError {
     RuntimeError(String),
 
     #[error("IO error: {0}")]
+    #[allow(dead_code)]
     IoError(String),
 
     #[error("Type error: {0}")]
+    #[allow(dead_code)]
     TypeError(String),
 
     #[error("Validation error: {0}")]
+    #[allow(dead_code)]
     ValidationError(String),
 }
 
@@ -45,10 +48,12 @@ impl StriaError {
         StriaError::RuntimeError(msg.into())
     }
 
+    #[allow(dead_code)]
     pub fn type_error(msg: impl Into<String>) -> Self {
         StriaError::TypeError(msg.into())
     }
 
+    #[allow(dead_code)]
     pub fn validation(msg: impl Into<String>) -> Self {
         StriaError::ValidationError(msg.into())
     }

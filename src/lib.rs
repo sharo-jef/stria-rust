@@ -14,11 +14,11 @@ use std::path::Path;
 
 /// Compile a Stria source string with the given options
 pub fn compile(source: &str, options: CompileOptions) -> StriaResult<String> {
-    use crate::interpreter::Executor;
-    use crate::lexer::Tokenizer;
+    use crate::interpreter::executor::Executor;
+    use crate::lexer::tokenizer::Tokenizer;
     use crate::output::OutputGenerator;
     use crate::parser::Parser;
-    use crate::semantic::SemanticAnalyzer;
+    use crate::semantic::analyzer::SemanticAnalyzer;
     use serde_json::Value as JsonValue;
 
     // Tokenize
@@ -31,10 +31,14 @@ pub fn compile(source: &str, options: CompileOptions) -> StriaResult<String> {
 
     // Semantic analysis
     let mut analyzer = SemanticAnalyzer::new();
-    analyzer.analyze(&ast)?;
+    analyzer.analyze(&ast, None)?;
 
     // Execute
     let mut executor = Executor::new();
+    println!("Debug: About to transfer structs from analyzer to executor");
+    println!("Debug: Analyzer has {} structs", analyzer.get_structs().len());
+    println!("Debug: Analyzer struct keys: {:?}", analyzer.get_structs().keys().collect::<Vec<_>>());
+    executor.set_structs(analyzer.get_structs().clone());
     executor.execute(&ast)?;
 
     // Generate output

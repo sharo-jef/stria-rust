@@ -2,6 +2,7 @@ use crate::error::StriaError;
 
 /// Diagnostic information for error reporting
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Diagnostic {
     pub message: String,
     pub line: usize,
@@ -11,6 +12,7 @@ pub struct Diagnostic {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum Severity {
     Error,
     Warning,
@@ -18,6 +20,7 @@ pub enum Severity {
 }
 
 impl Diagnostic {
+    #[allow(dead_code)]
     pub fn error(message: impl Into<String>, line: usize, column: usize, length: usize) -> Self {
         Self {
             message: message.into(),
@@ -28,6 +31,7 @@ impl Diagnostic {
         }
     }
 
+    #[allow(dead_code)]
     pub fn warning(message: impl Into<String>, line: usize, column: usize, length: usize) -> Self {
         Self {
             message: message.into(),
@@ -39,6 +43,7 @@ impl Diagnostic {
     }
 
     /// Format diagnostic in Rust-style error format
+    #[allow(dead_code)]
     pub fn format_error(&self, source: &str, filename: &str) -> String {
         let lines: Vec<&str> = source.lines().collect();
         let line_content = lines.get(self.line.saturating_sub(1)).unwrap_or(&"");

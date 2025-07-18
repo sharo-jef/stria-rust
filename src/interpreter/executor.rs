@@ -46,17 +46,18 @@ impl Executor {
         }
     }
 
+    /// Set the struct definitions for the executor
+    pub fn set_structs(&mut self, structs: HashMap<String, StructDeclaration>) {
+        self.structs = structs;
+    }
+
     pub fn execute(&mut self, program: &Program) -> StriaResult<()> {
-        // First pass: collect all struct and function declarations
+        // First pass: collect all struct declarations and schema directives
         for item in &program.items {
             match item {
-                Item::StructDeclaration(struct_decl) => {
+                crate::parser::ast::Item::StructDeclaration(struct_decl) => {
                     self.structs
                         .insert(struct_decl.name.clone(), struct_decl.clone());
-                }
-                Item::FunctionDeclaration(func_decl) => {
-                    self.functions
-                        .insert(func_decl.name.clone(), func_decl.clone());
                 }
                 _ => {}
             }
@@ -259,30 +260,49 @@ impl Executor {
 
                 let mut struct_value = Value::Struct(struct_instantiation.name.clone(), fields);
 
-                // Phase 1: Constructor arguments (if any)
+                // Phase 1: Direct field assignments (if any)
                 if !struct_instantiation.arguments.is_empty() {
-                    // Find appropriate constructor
-                    let mut constructor = None;
-                    for init_method in &struct_decl.init_methods {
-                        if init_method.parameters.len() == struct_instantiation.arguments.len() {
-                            constructor = Some(init_method);
-                            break;
-                        }
-                    }
+                    // Check if this is field assignment syntax (pairs of field_name, field_value)
+                    if struct_instantiation.arguments.len() % 2 == 0 {
+                        // Process field assignments in pairs
+                        for i in (0..struct_instantiation.arguments.len()).step_by(2) {
+                            if let Expression::Identifier(field_name, _) =
+                                &struct_instantiation.arguments[i]
+                            {
+                                let field_value = self
+                                    .evaluate_expression(&struct_instantiation.arguments[i + 1])?;
 
-                    if let Some(init_method) = constructor {
-                        // Evaluate arguments and bind to parameters
-                        for (arg_expr, param) in struct_instantiation
-                            .arguments
-                            .iter()
-                            .zip(init_method.parameters.iter())
-                        {
-                            let arg_value = self.evaluate_expression(arg_expr)?;
-                            if param.is_this {
-                                // Handle primary constructor parameter assignment
-                                let param_name = param.name.trim_start_matches("this.");
                                 if let Value::Struct(_, ref mut fields) = struct_value {
-                                    fields.insert(param_name.to_string(), arg_value);
+                                    fields.insert(field_name.clone(), field_value);
+                                }
+                            }
+                        }
+                    } else {
+                        // Fall back to constructor arguments
+                        // Find appropriate constructor
+                        let mut constructor = None;
+                        for init_method in &struct_decl.init_methods {
+                            if init_method.parameters.len() == struct_instantiation.arguments.len()
+                            {
+                                constructor = Some(init_method);
+                                break;
+                            }
+                        }
+
+                        if let Some(init_method) = constructor {
+                            // Evaluate arguments and bind to parameters
+                            for (arg_expr, param) in struct_instantiation
+                                .arguments
+                                .iter()
+                                .zip(init_method.parameters.iter())
+                            {
+                                let arg_value = self.evaluate_expression(arg_expr)?;
+                                if param.is_this {
+                                    // Handle primary constructor parameter assignment
+                                    let param_name = param.name.trim_start_matches("this.");
+                                    if let Value::Struct(_, ref mut fields) = struct_value {
+                                        fields.insert(param_name.to_string(), arg_value);
+                                    }
                                 }
                             }
                         }
@@ -355,6 +375,11 @@ impl Executor {
                                         property.name, struct_instantiation.name
                                     )));
                                 }
+                            } else {
+                                return Err(StriaError::runtime(format!(
+                                    "Required property '{}' not assigned in struct '{}'",
+                                    property.name, struct_instantiation.name
+                                )));
                             }
                         }
                     }

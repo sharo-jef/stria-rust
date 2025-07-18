@@ -786,10 +786,63 @@ impl Parser {
 
             TokenKind::Identifier => {
                 let token = self.advance();
-                Ok(Expression::Identifier(
-                    token.value.clone(),
-                    token.span.clone(),
-                ))
+                let name = token.value.clone();
+                let span = token.span.clone();
+                
+                // Check if this is a struct instantiation
+                if self.check(&TokenKind::LeftBrace) {
+                    self.advance(); // consume '{'
+                    let mut field_assignments = Vec::new();
+                    
+                    while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+                        // Parse field name
+                        if let TokenKind::Identifier = self.peek().kind {
+                            let field_name = self.advance().value.clone();
+                            
+                            // Expect '=' 
+                            if !self.match_token(&TokenKind::Assign) {
+                                return Err(StriaError::parser(
+                                    format!("Expected '=' after field name '{}' in struct instantiation, found {:?}", field_name, self.peek())
+                                ));
+                            }
+                            
+                            // Parse field value
+                            let field_value = self.parse_expression()?;
+                            
+                            // Create an assignment expression for this field
+                            field_assignments.push(Expression::Identifier(field_name, span.clone()));
+                            field_assignments.push(field_value);
+                            
+                            // Handle comma or end - allow newlines as field separators
+                            if self.check(&TokenKind::Comma) {
+                                self.advance(); // consume ','
+                            } else if self.check(&TokenKind::RightBrace) {
+                                // End of struct, will be handled by outer loop
+                            } else {
+                                // Allow implicit field separation (newlines act as separators)
+                            }
+                        } else {
+                            return Err(StriaError::parser(
+                                "Expected field name in struct instantiation".to_string(),
+                            ));
+                        }
+                    }
+                    
+                    if !self.match_token(&TokenKind::RightBrace) {
+                        return Err(StriaError::parser(
+                            "Expected '}' after struct instantiation".to_string(),
+                        ));
+                    }
+                    
+                    Ok(Expression::StructInstantiation(StructInstantiation {
+                        name,
+                        arguments: field_assignments,
+                        initializer: None,
+                        span,
+                    }))
+                } else {
+                    Ok(Expression::Identifier(name, span))
+                }
             }
 
             TokenKind::LeftParen => {
@@ -880,12 +933,12 @@ impl Parser {
 
         let path_token = self.advance();
         let mut path = path_token.value.clone();
-        
+
         // Remove quotes from the path if present
-        if path.starts_with('"') && path.ends_with('"') {
-            path = path[1..path.len()-1].to_string();
+        if (path.starts_with('"') && path.ends_with('"')) || (path.starts_with('\'') && path.ends_with('\'')) {
+            path = path[1..path.len() - 1].to_string();
         }
-        
+
         let span = crate::lexer::Span {
             start,
             end: path_token.span.end,
