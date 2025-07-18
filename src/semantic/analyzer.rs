@@ -438,79 +438,86 @@ impl SemanticAnalyzer {
                 Ok(Type::Array(Box::new(first_type)))
             }
             Expression::StructInstantiation(struct_instantiation) => {
-                let struct_decl = self
-                    .structs
-                    .get(&struct_instantiation.name)
-                    .ok_or_else(|| {
-                        StriaError::semantic(format!(
-                            "Undefined struct '{}'",
+                // First check if this is a direct struct instantiation
+                if let Some(struct_decl) = self.structs.get(&struct_instantiation.name) {
+                    let struct_decl = struct_decl.clone();
+                    
+                    // Check if arguments are field assignments (pairs of field_name, field_value)
+                    if struct_instantiation.arguments.len() % 2 != 0 {
+                        return Err(StriaError::semantic(format!(
+                            "Struct '{}' field assignments must be in pairs (field_name, field_value)",
                             struct_instantiation.name
-                        ))
-                    })?
-                    .clone();
+                        )));
+                    }
 
-                // Check if arguments are field assignments (pairs of field_name, field_value)
-                if struct_instantiation.arguments.len() % 2 != 0 {
+                    let field_assignment_count = struct_instantiation.arguments.len() / 2;
+                    if field_assignment_count != struct_decl.properties.len() {
+                        return Err(StriaError::semantic(format!(
+                            "Struct '{}' expects {} fields, got {}",
+                            struct_instantiation.name,
+                            struct_decl.properties.len(),
+                            field_assignment_count
+                        )));
+                    }
+
+                    // Check field assignments
+                    for i in 0..field_assignment_count {
+                        let field_name_idx = i * 2;
+                        let field_value_idx = i * 2 + 1;
+
+                        // Get the field name
+                        let field_name = match &struct_instantiation.arguments[field_name_idx] {
+                            Expression::Identifier(name, _) => name.clone(),
+                            _ => {
+                                return Err(StriaError::semantic(format!(
+                                    "Expected field name as identifier in struct '{}' instantiation",
+                                    struct_instantiation.name
+                                )))
+                            }
+                        };
+
+                        // Find the corresponding property
+                        let property = struct_decl
+                            .properties
+                            .iter()
+                            .find(|p| p.name == field_name)
+                            .ok_or_else(|| {
+                                StriaError::semantic(format!(
+                                    "Struct '{}' does not have field '{}'",
+                                    struct_instantiation.name, field_name
+                                ))
+                            })?;
+
+                        // Check the field value type
+                        let field_value = &struct_instantiation.arguments[field_value_idx];
+                        let value_type = self.analyze_expression(field_value)?;
+
+                        if let Some(ref type_annotation) = property.type_annotation {
+                            let expected_type = self.type_annotation_to_type(type_annotation)?;
+                            if !self.is_compatible_type(&expected_type, &value_type) {
+                                return Err(StriaError::semantic(format!(
+                                    "Field '{}' of struct '{}' expects type '{:?}', got '{:?}'",
+                                    field_name, struct_instantiation.name, expected_type, value_type
+                                )));
+                            }
+                        }
+                    }
+
+                    Ok(Type::Struct(struct_instantiation.name.clone()))
+                } else {
+                    // Check if this is a property-based instantiation from imported schema
+                    if let Some(_schema_ref) = &self.schema_reference {
+                        // This is a configuration file that references a schema
+                        // We need to resolve property-based instantiations
+                        return self.resolve_property_based_instantiation(struct_instantiation);
+                    }
+                    
+                    // Not found anywhere
                     return Err(StriaError::semantic(format!(
-                        "Struct '{}' field assignments must be in pairs (field_name, field_value)",
+                        "Undefined struct '{}'",
                         struct_instantiation.name
                     )));
                 }
-
-                let field_assignment_count = struct_instantiation.arguments.len() / 2;
-                if field_assignment_count != struct_decl.properties.len() {
-                    return Err(StriaError::semantic(format!(
-                        "Struct '{}' expects {} fields, got {}",
-                        struct_instantiation.name,
-                        struct_decl.properties.len(),
-                        field_assignment_count
-                    )));
-                }
-
-                // Check field assignments
-                for i in 0..field_assignment_count {
-                    let field_name_idx = i * 2;
-                    let field_value_idx = i * 2 + 1;
-
-                    // Get the field name
-                    let field_name = match &struct_instantiation.arguments[field_name_idx] {
-                        Expression::Identifier(name, _) => name.clone(),
-                        _ => {
-                            return Err(StriaError::semantic(format!(
-                                "Expected field name as identifier in struct '{}' instantiation",
-                                struct_instantiation.name
-                            )))
-                        }
-                    };
-
-                    // Find the corresponding property
-                    let property = struct_decl
-                        .properties
-                        .iter()
-                        .find(|p| p.name == field_name)
-                        .ok_or_else(|| {
-                            StriaError::semantic(format!(
-                                "Struct '{}' does not have field '{}'",
-                                struct_instantiation.name, field_name
-                            ))
-                        })?;
-
-                    // Check the field value type
-                    let field_value = &struct_instantiation.arguments[field_value_idx];
-                    let value_type = self.analyze_expression(field_value)?;
-
-                    if let Some(ref type_annotation) = property.type_annotation {
-                        let expected_type = self.type_annotation_to_type(type_annotation)?;
-                        if !self.is_compatible_type(&expected_type, &value_type) {
-                            return Err(StriaError::semantic(format!(
-                                "Field '{}' of struct '{}' expects type '{:?}', got '{:?}'",
-                                field_name, struct_instantiation.name, expected_type, value_type
-                            )));
-                        }
-                    }
-                }
-
-                Ok(Type::Struct(struct_instantiation.name.clone()))
             }
             Expression::If(if_expr) => {
                 let condition_type = self.analyze_expression(&if_expr.condition)?;
@@ -843,12 +850,13 @@ impl SemanticAnalyzer {
         self.is_schema_file = true;
 
         // Validate that all items in the schema declaration are valid struct names
-        for item_name in &schema_decl.items {
-            if !self.structs.contains_key(item_name) {
-                return Err(StriaError::semantic(format!(
-                    "Schema references undefined struct '{}'",
-                    item_name
-                )));
+        for item in &schema_decl.items {
+            if !self.structs.contains_key(&item.type_name) {
+                return Err(StriaError::parser_with_span_and_help(
+                    format!("Schema references undefined struct '{}'", item.type_name),
+                    item.span.clone(),
+                    format!("Define struct '{}' or check the spelling", item.type_name),
+                ));
             }
         }
 
@@ -994,5 +1002,15 @@ impl SemanticAnalyzer {
         // allowed constructs for schema files
         // For now, we'll just return OK as this is a demonstration
         Ok(())
+    }
+
+    fn resolve_property_based_instantiation(&self, struct_instantiation: &StructInstantiation) -> StriaResult<Type> {
+        // TODO: For now, we'll return an error but this should be implemented
+        // to resolve property-based instantiations in configuration files
+        Err(StriaError::parser_with_span_and_help(
+            format!("Property-based instantiation not yet implemented: '{}'", struct_instantiation.name),
+            struct_instantiation.span.clone(),
+            "Use struct instantiation with explicit type names instead".to_string(),
+        ))
     }
 }

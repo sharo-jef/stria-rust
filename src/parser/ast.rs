@@ -27,7 +27,14 @@ pub struct SchemaDirective {
 
 #[derive(Debug, Clone)]
 pub struct SchemaDeclaration {
-    pub items: Vec<String>,
+    pub items: Vec<SchemaItem>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct SchemaItem {
+    pub property_name: String,
+    pub type_name: String,
     pub span: Span,
 }
 

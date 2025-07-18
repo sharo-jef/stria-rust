@@ -95,24 +95,65 @@ impl Diagnostic {
 
         let filename = self.filename.as_deref().unwrap_or("<stdin>");
 
+        // Colors for different severities
+        let (severity_color, reset_color) = match self.severity {
+            Severity::Error => ("\x1b[31m", "\x1b[0m"),   // Red
+            Severity::Warning => ("\x1b[33m", "\x1b[0m"), // Yellow
+            Severity::Info => ("\x1b[34m", "\x1b[0m"),    // Blue
+        };
+
+        // Calculate the width needed for the line number
+        let line_num_width = self.line.to_string().len();
+        let line_prefix_spaces = " ".repeat(line_num_width);
+
         let mut result = format!(
-            "{severity_name}[{error_code}]: {message}\n  --> {filename}:{line}:{column}\n   |\n{line:4} | {line_content}\n   | {padding}{carets}",
+            "{severity_color}{severity_name}[{error_code}]{reset_color}: {message}\n  {arrow_color}-->{reset_color} {filename}:{line}:{column}\n{line_prefix_spaces} {pipe_color}|{reset_color}\n{line_number} {pipe_color}|{reset_color} {line_content}\n{line_prefix_spaces} {pipe_color}|{reset_color} {padding}{caret_color}{carets}{reset_color}",
+            severity_color = severity_color,
             severity_name = severity_name,
             error_code = error_code,
+            reset_color = reset_color,
             message = self.message,
+            arrow_color = "\x1b[34m",  // Blue for arrow
             filename = filename,
             line = self.line,
             column = self.column + 1, // Convert to 1-based for display
+            pipe_color = "\x1b[34m",  // Blue for pipe
+            line_prefix_spaces = line_prefix_spaces,
+            line_number = self.line,  // Left-aligned line number
             line_content = line_content,
             padding = " ".repeat(self.column),
+            caret_color = "\x1b[31m",  // Red for carets
             carets = "^".repeat(self.length.max(1))
         );
 
         if let Some(help) = &self.help {
-            result.push_str(&format!("\n   |\nhelp: {}", help));
+            result.push_str(&format!(
+                "\n{line_prefix_spaces} \x1b[34m|\x1b[0m\n\x1b[32mhelp\x1b[0m: {help}",
+                line_prefix_spaces = line_prefix_spaces,
+                help = help
+            ));
         }
 
         result
+    }
+
+    /// Format diagnostic in LSP-compatible format
+    pub fn format_lsp(&self, _source: &str) -> String {
+        let filename = self.filename.as_deref().unwrap_or("<stdin>");
+
+        // LSP format: filename:line:column: severity: message
+        format!(
+            "{}:{}:{}: {}: {}",
+            filename,
+            self.line,
+            self.column + 1, // Convert to 1-based for display
+            match self.severity {
+                Severity::Error => "error",
+                Severity::Warning => "warning",
+                Severity::Info => "info",
+            },
+            self.message
+        )
     }
 }
 

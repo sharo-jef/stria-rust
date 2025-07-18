@@ -74,17 +74,67 @@ impl Parser {
     }
 
     fn parse_schema_declaration(&mut self) -> StriaResult<SchemaDeclaration> {
-        let start = self.advance().span.start;
+        let start = self.advance().span.start; // consume 'schema'
 
         let mut items = Vec::new();
 
-        // Parse schema items (simplified)
-        while !self.is_at_end() && !self.check(&TokenKind::Keyword(Keyword::Struct)) {
+        // Expect opening brace
+        if !self.match_token(&TokenKind::LeftBrace) {
+            return Err(StriaError::parser(
+                "Expected '{' after 'schema'".to_string(),
+            ));
+        }
+
+        // Parse schema properties
+        while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            // Parse property name or struct name
             if let TokenKind::Identifier = self.peek().kind {
-                items.push(self.advance().value.clone());
+                let first_name = self.advance().value.clone();
+                let first_token_span = self.previous().span.clone();
+                
+                // Check if this is the old format (just struct names) or new format (property: Type)
+                if self.check(&TokenKind::Colon) {
+                    // New format: property: Type
+                    self.advance(); // consume ':'
+                    
+                    // Parse type name
+                    if let TokenKind::Identifier = self.peek().kind {
+                        let type_token = self.advance();
+                        items.push(crate::parser::ast::SchemaItem {
+                            property_name: first_name,
+                            type_name: type_token.value.clone(),
+                            span: type_token.span.clone(),
+                        });
+                    } else {
+                        return Err(StriaError::parser(
+                            "Expected type name after ':' in schema".to_string(),
+                        ));
+                    }
+                } else {
+                    // Old format: just struct names
+                    items.push(crate::parser::ast::SchemaItem {
+                        property_name: first_name.clone(), // Use struct name as property name
+                        type_name: first_name,
+                        span: first_token_span,
+                    });
+                }
             } else {
+                return Err(StriaError::parser(
+                    "Expected property name or struct name in schema".to_string(),
+                ));
+            }
+            
+            // Optional comma
+            if self.check(&TokenKind::Comma) {
                 self.advance();
             }
+        }
+
+        // Expect closing brace
+        if !self.match_token(&TokenKind::RightBrace) {
+            return Err(StriaError::parser(
+                "Expected '}' after schema body".to_string(),
+            ));
         }
 
         let end = self.previous().span.end;

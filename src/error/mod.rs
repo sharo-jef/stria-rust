@@ -88,4 +88,15 @@ impl StriaError {
             _ => format!("{}", self),
         }
     }
+
+    pub fn format_lsp(&self, source: &str, filename: &str) -> String {
+        match self {
+            StriaError::Diagnostic(diagnostic) => {
+                let mut d = diagnostic.clone();
+                d.filename = Some(filename.to_string());
+                d.format_lsp(source)
+            }
+            _ => format!("{}", self),
+        }
+    }
 }

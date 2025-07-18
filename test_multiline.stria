@@ -1,0 +1,11 @@
+schema {
+    s: NonExistentStruct
+}
+
+struct Simple {
+    field1: i32
+}
+
+// Line 8
+// Line 9
+// Line 10

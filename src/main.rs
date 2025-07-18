@@ -1,6 +1,6 @@
+use clap::Parser;
 use std::fs;
 use std::process;
-use clap::Parser;
 
 mod error;
 mod interpreter;
@@ -9,7 +9,7 @@ mod output;
 mod parser;
 mod semantic;
 
-use crate::output::{OutputGenerator, OutputFormat};
+use crate::output::{OutputFormat, OutputGenerator};
 use error::StriaError;
 use interpreter::executor::Executor;
 use lexer::tokenizer::Tokenizer;
@@ -26,6 +26,10 @@ struct Args {
     /// Output format
     #[arg(short, long, value_enum, default_value = "json")]
     format: OutputFormatArg,
+
+    /// Enable LSP mode (output LSP-compatible diagnostics)
+    #[arg(long)]
+    lsp: bool,
 }
 
 #[derive(clap::ValueEnum, Clone)]
@@ -57,7 +61,11 @@ fn main() {
     };
 
     if let Err(err) = run_stria(&source, &args.input, args.format.into()) {
-        let error_msg = err.format_rich(&source, &args.input);
+        let error_msg = if args.lsp {
+            err.format_lsp(&source, &args.input)
+        } else {
+            err.format_rich(&source, &args.input)
+        };
         eprintln!("{}", error_msg);
         process::exit(1);
     }

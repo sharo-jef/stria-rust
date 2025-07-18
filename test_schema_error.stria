@@ -1,0 +1,7 @@
+schema {
+    s: NonExistentStruct
+}
+
+struct Simple {
+    field1: i32
+}

@@ -1,0 +1,7 @@
+#schema "./schema.stria"
+
+SimpleStruct {
+    field1 = 42
+    field2 = "Hello, World!"
+    field3 = true
+}
