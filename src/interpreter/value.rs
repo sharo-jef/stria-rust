@@ -131,6 +131,7 @@ impl Value {
         }
     }
 
+    #[allow(non_snake_case)]
     pub fn equals(&self, other: &Value) -> bool {
         match (self, other) {
             (Value::Integer(a, _), Value::Integer(b, _)) => a == b,
